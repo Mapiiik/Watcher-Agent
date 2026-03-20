@@ -7,29 +7,42 @@ import (
     "strings"
 )
 
-func snmpText(v any) string {
-    if b, ok := v.([]byte); ok {
-        return string(b)
+func snmpText(v any) *string {
+    if v == nil {
+        return nil
     }
-    return fmt.Sprintf("%v", v)
+    if b, ok := v.([]byte); ok {
+        if len(b) == 0 {
+            return nil
+        }
+        s := string(b)
+        return &s
+    }
+    s := fmt.Sprintf("%v", v)
+    if s == "" || s == "<nil>" {
+        return nil
+    }
+    return &s
 }
 
-func macToString(v any) string {
-    // gosnmp often returns []byte for OctetString
+func macToString(v any) *string {
     b, ok := v.([]byte)
     if !ok || len(b) == 0 {
-        return ""
+        return nil
     }
-    // format aa:bb:cc:dd:ee:ff
+
     h := hex.EncodeToString(b)
     if len(h) < 12 {
-        return ""
+        return nil
     }
+
     parts := []string{}
     for i := 0; i+2 <= len(h); i += 2 {
         parts = append(parts, h[i:i+2])
     }
-    return strings.Join(parts, ":")
+
+    s := strings.Join(parts, ":")
+    return &s
 }
 
 func maskToCIDR(mask string) int {

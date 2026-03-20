@@ -9,36 +9,36 @@ import (
 )
 
 type SNMPDevice struct {
-    Serial            string `json:"serial_number"`
-    IP               string `json:"ip_address"`
-    Name             string `json:"name"`
-    SystemDescription string `json:"system_description"`
-    BoardName         string `json:"board_name"`
-    SoftwareVersion   string `json:"software_version"`
-    FirmwareVersion   string `json:"firmware_version"`
+    Serial            string  `json:"serial_number"`
+    IP                string  `json:"ip_address"`
+    Name              *string `json:"name"`
+    SystemDescription *string `json:"system_description"`
+    BoardName         *string `json:"board_name"`
+    SoftwareVersion   *string `json:"software_version"`
+    FirmwareVersion   *string `json:"firmware_version"`
 }
 
 type SNMPInterface struct {
-    InterfaceIndex       int    `json:"interface_index"`
-    Name                 string `json:"name"`
-    Comment              string `json:"comment"`
-    AdminStatus          int    `json:"interface_admin_status"`
-    OperStatus           int    `json:"interface_oper_status"`
-    InterfaceType        int    `json:"interface_type"`
-    MACAddress           string `json:"mac_address"`
-    SSID                 string `json:"ssid"`
-    BSSID                string `json:"bssid"`
-    Band                 string `json:"band"`
-    Frequency            int    `json:"frequency"`
-    NoiseFloor           int    `json:"noise_floor"`
-    ClientCount          int    `json:"client_count"`
-    OverallTxCCQ         int    `json:"overall_tx_ccq"`
+    InterfaceIndex       int     `json:"interface_index"`
+    Name                 *string `json:"name"`
+    Comment              *string  `json:"comment"`
+    AdminStatus          int     `json:"interface_admin_status"`
+    OperStatus           int     `json:"interface_oper_status"`
+    InterfaceType        int     `json:"interface_type"`
+    MACAddress           *string  `json:"mac_address"`
+    SSID                 *string  `json:"ssid"`
+    BSSID                *string  `json:"bssid"`
+    Band                 *string  `json:"band"`
+    Frequency            int     `json:"frequency"`
+    NoiseFloor           int     `json:"noise_floor"`
+    ClientCount          int     `json:"client_count"`
+    OverallTxCCQ         int     `json:"overall_tx_ccq"`
 }
 
 type SNMPIPAddress struct {
-    InterfaceIndex int    `json:"interface_index"`
-    IPAddressCIDR  string `json:"ip_address"`
-    Name           string `json:"name"`
+    InterfaceIndex int     `json:"interface_index"`
+    IPAddressCIDR  *string `json:"ip_address"`
+    Name           *string `json:"name"`
 }
 
 type SNMPReadResult struct {
@@ -62,15 +62,14 @@ func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
     return g, nil
 }
 
-func snmpGetText(g *gosnmp.GoSNMP, oid string) (string, error) {
+func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
     pkt, err := g.Get([]string{oid})
     if err != nil {
-        return "", err
+        return nil, err
     }
     if len(pkt.Variables) == 0 {
-        return "", nil
+        return nil, nil
     }
-
     return snmpText(pkt.Variables[0].Value), nil
 }
 
@@ -118,7 +117,7 @@ func ReadRouterOSViaSNMP(cfg Config, host, community string) (SNMPReadResult, er
     defer g.Conn.Close()
 
     serial, err := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.3.0")
-    if err != nil || serial == "" {
+    if err != nil || serial == nil {
         if err == nil {
             err = fmt.Errorf("serial not found")
         }
@@ -133,9 +132,9 @@ func ReadRouterOSViaSNMP(cfg Config, host, community string) (SNMPReadResult, er
 
     res := SNMPReadResult{
         Device: SNMPDevice{
-            Serial:            serial,
-            IP:               host,
-            Name:             name,
+            Serial:            *serial,
+            IP:                host,
+            Name:              name,
             SystemDescription: sysDescr,
             BoardName:         board,
             SoftwareVersion:   sw,
@@ -164,11 +163,11 @@ func ReadRouterOSViaSNMP(cfg Config, host, community string) (SNMPReadResult, er
     sort.Ints(indexes)
 
     for _, ifIndex := range indexes {
-        getText := func(key string) string {
+        getText := func(key string) *string {
             if p, ok := ifTable[key+"."+fmt.Sprint(ifIndex)]; ok {
                 return snmpText(p.Value)
             }
-            return ""
+            return nil
         }
         getInt := func(key string) int {
             if p, ok := ifTable[key+"."+fmt.Sprint(ifIndex)]; ok {
@@ -235,30 +234,36 @@ func ReadRouterOSViaSNMP(cfg Config, host, community string) (SNMPReadResult, er
 
     for k, pdu := range ipAddrs {
         ipStr := snmpText(pdu.Value)
-        if net.ParseIP(ipStr) == nil {
+        if ipStr == nil || net.ParseIP(*ipStr) == nil {
             continue
         }
+
         m, ok := ipMasks[k]
         if !ok {
             continue
         }
+
         maskStr := snmpText(m.Value)
-        if net.ParseIP(maskStr) == nil {
+        if maskStr == nil || net.ParseIP(*maskStr) == nil {
             continue
         }
-        cidr := maskToCIDR(maskStr)
+
+        cidr := maskToCIDR(*maskStr)
         if cidr < 0 {
             continue
         }
+
         ifi, ok := ipIfIdx[k]
         if !ok {
             continue
         }
+
         ifIndex := toInt(ifi.Value)
 
+        cidrStr := fmt.Sprintf("%s/%d", *ipStr, cidr)
         res.IPAddresses = append(res.IPAddresses, SNMPIPAddress{
             InterfaceIndex: ifIndex,
-            IPAddressCIDR:  fmt.Sprintf("%s/%d", ipStr, cidr),
+            IPAddressCIDR:  &cidrStr,
             Name:           ipStr,
         })
     }
