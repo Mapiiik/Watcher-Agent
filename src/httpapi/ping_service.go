@@ -24,8 +24,13 @@ type PingRequest struct {
 
 type PingReply struct {
 	Reachable bool    `json:"reachable"`
+	Sent      int     `json:"sent"`
+	Received  int     `json:"received"`
+	Lost      int     `json:"lost"`
 	LossPct   float64 `json:"loss_pct"`
+	RTTMinMs  float64 `json:"rtt_min_ms"`
 	RTTAvgMs  float64 `json:"rtt_avg_ms"`
+	RTTMaxMs  float64 `json:"rtt_max_ms"`
 }
 
 func NewPingService() *PingService {
@@ -80,6 +85,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 
 	var sent, recv int
 	var sum time.Duration
+	var minRTT, maxRTT time.Duration
 
 	for i := 0; i < req.Count; i++ {
 		sent++
@@ -112,19 +118,39 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		rm, err := icmp.ParseMessage(1, buf[:n])
 		if err == nil && rm.Type == ipv4.ICMPTypeEchoReply {
 			recv++
-			sum += time.Since(start)
+
+			rtt := time.Since(start)
+
+			if recv == 1 || rtt < minRTT {
+				minRTT = rtt
+			}
+			if rtt > maxRTT {
+				maxRTT = rtt
+			}
+
+			sum += rtt
 		}
 	}
 
-	loss := float64(sent-recv) / float64(sent) * 100.0
+	lost := sent - recv
+	loss := float64(lost) / float64(sent) * 100.0
 	avg := 0.0
+	min := 0.0
+	max := 0.0
 	if recv > 0 {
-		avg = float64(sum.Milliseconds()) / float64(recv)
+		avg = float64(sum) / float64(recv) / float64(time.Millisecond)
+		min = float64(minRTT) / float64(time.Millisecond)
+		max = float64(maxRTT) / float64(time.Millisecond)
 	}
 
 	httphelpers.WriteJSON(w, PingReply{
 		Reachable: recv > 0,
+		Sent:      sent,
+		Received:  recv,
+		Lost:      lost,
 		LossPct:   loss,
+		RTTMinMs:  min,
 		RTTAvgMs:  avg,
+		RTTMaxMs:  max,
 	})
 }
