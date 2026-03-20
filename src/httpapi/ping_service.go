@@ -24,6 +24,7 @@ type PingRequest struct {
 
 type PingReply struct {
 	Reachable bool    `json:"reachable"`
+	TargetIP  string  `json:"target_ip"`
 	Sent      int     `json:"sent"`
 	Received  int     `json:"received"`
 	Lost      int     `json:"lost"`
@@ -145,6 +146,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 
 	httphelpers.WriteJSON(w, PingReply{
 		Reachable: recv > 0,
+		TargetIP:  ip.String(),
 		Sent:      sent,
 		Received:  recv,
 		Lost:      lost,
