@@ -2,8 +2,8 @@ services:
   watcher-agent:
     build:
       context: .
-      dockerfile: docker/Dockerfile.prod
-    image: watcher-agent:prod
+      dockerfile: docker/Dockerfile.production
+    image: watcher-agent:production
     restart: unless-stopped
 
     env_file:
