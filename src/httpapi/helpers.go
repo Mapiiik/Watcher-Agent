@@ -1,16 +1,10 @@
 package httpapi
 
 import (
-    "encoding/json"
     "net"
     "net/http"
     "strings"
 )
-
-func writeJSON(w http.ResponseWriter, v any) {
-    w.Header().Set("Content-Type", "application/json")
-    _ = json.NewEncoder(w).Encode(v)
-}
 
 func remoteIP(r *http.Request) string {
     host, _, _ := net.SplitHostPort(r.RemoteAddr)

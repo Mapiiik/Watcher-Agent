@@ -8,6 +8,8 @@ import (
 
     "golang.org/x/net/icmp"
     "golang.org/x/net/ipv4"
+
+    "watcher-agent/src/httphelpers"
 )
 
 type PingService struct {
@@ -33,7 +35,12 @@ func NewPingService() *PingService {
 func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
     var req PingRequest
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "bad json", 400)
+        httphelpers.WriteError(
+            w,
+            http.StatusBadRequest,
+            "bad_request",
+            "Invalid JSON request body.",
+        )
         return
     }
 
@@ -48,7 +55,12 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
     if ip == nil {
         ips, err := net.LookupIP(req.Host)
         if err != nil || len(ips) == 0 {
-            http.Error(w, "dns failed", 400)
+            httphelpers.WriteError(
+                w,
+                http.StatusBadRequest,
+                "dns_failed",
+                "The host could not be resolved.",
+            )
             return
         }
         ip = ips[0]
@@ -56,7 +68,12 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 
     c, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
     if err != nil {
-        http.Error(w, "icmp listen failed (need CAP_NET_RAW or root)", 500)
+        httphelpers.WriteError(
+            w,
+            http.StatusInternalServerError,
+            "icmp_unavailable",
+            "ICMP listen failed (need CAP_NET_RAW or root).",
+        )
         return
     }
     defer c.Close()
@@ -105,7 +122,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
         avg = float64(sum.Milliseconds()) / float64(recv)
     }
 
-    writeJSON(w, PingReply{
+    httphelpers.WriteJSON(w, PingReply{
         Reachable: recv > 0,
         LossPct:   loss,
         RTTAvgMs:  avg,

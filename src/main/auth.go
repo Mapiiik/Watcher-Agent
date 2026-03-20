@@ -4,13 +4,20 @@ import (
     "net"
     "net/http"
     "strings"
+
+    "watcher-agent/src/httphelpers"
 )
 
 func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         h := strings.TrimSpace(r.Header.Get("Authorization"))
         if !strings.HasPrefix(h, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")) != appCfg.APIToken {
-            http.Error(w, "unauthorized", http.StatusUnauthorized)
+            httphelpers.WriteError(
+                w,
+                http.StatusUnauthorized,
+                "unauthorized",
+                "Invalid or missing API token.",
+            )
             return
         }
         next.ServeHTTP(w, r)
@@ -37,16 +44,29 @@ func routerOSGuard(appCfg AppConfig, next http.Handler) http.Handler {
         if host == "" {
             host = r.RemoteAddr
         }
+
         if !ipAllowed(host, appCfg.RouterOSAllowCIDRs) {
-            http.Error(w, "forbidden", http.StatusForbidden)
+            httphelpers.WriteError(
+                w,
+                http.StatusForbidden,
+                "forbidden",
+                "Access from this IP address is not allowed.",
+            )
             return
         }
+
         if appCfg.RouterOSQueryToken != "" {
             if strings.TrimSpace(r.URL.Query().Get("t")) != appCfg.RouterOSQueryToken {
-                http.Error(w, "forbidden", http.StatusForbidden)
+                httphelpers.WriteError(
+                    w,
+                    http.StatusForbidden,
+                    "forbidden",
+                    "Invalid or missing RouterOS query token.",
+                )
                 return
             }
         }
+
         next.ServeHTTP(w, r)
     })
 }

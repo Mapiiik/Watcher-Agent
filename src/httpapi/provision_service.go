@@ -31,7 +31,11 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
     // URL: /routeros/provision/{deviceType}/{serial}
     parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
     if len(parts) != 4 {
-        http.Error(w, "bad path", 400)
+        w.Header().Set("Content-Type", "text/plain")
+        fmt.Fprint(
+            w,
+            ":log error \"Watcher Agent: Invalid provisioning URL\"\n",
+        )
         return
     }
 

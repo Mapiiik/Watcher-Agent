@@ -5,6 +5,7 @@ import (
     "net/http"
 
     "watcher-agent/src/domain/snmp"
+    "watcher-agent/src/httphelpers"
 )
 
 type SNMPService struct {
@@ -23,19 +24,35 @@ func NewSNMPService(cfg snmp.Config) *SNMPService {
 func (s *SNMPService) HandleRead(w http.ResponseWriter, r *http.Request) {
     var req SNMPReadRequest
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "bad json", 400)
+        httphelpers.WriteError(
+            w,
+            http.StatusBadRequest,
+            "bad_request",
+            "Invalid JSON request body.",
+        )
         return
     }
+
     if req.Host == "" || req.Community == "" {
-        http.Error(w, "host and community required", 400)
+        httphelpers.WriteError(
+            w,
+            http.StatusBadRequest,
+            "bad_request",
+            "Parameters 'host' and SNMP 'community' are required.",
+        )
         return
     }
 
     data, err := snmp.ReadRouterOSViaSNMP(s.cfg, req.Host, req.Community)
     if err != nil {
-        http.Error(w, "snmp read failed: "+err.Error(), 500)
+        httphelpers.WriteError(
+            w,
+            http.StatusBadGateway,
+            "snmp_read_failed",
+            "Failed to read data from the SNMP device.",
+        )
         return
     }
 
-    writeJSON(w, data)
+    httphelpers.WriteJSON(w, data)
 }

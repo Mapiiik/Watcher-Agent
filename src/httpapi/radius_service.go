@@ -5,6 +5,7 @@ import (
     "net/http"
 
     "watcher-agent/src/domain/radius"
+    "watcher-agent/src/httphelpers"
 )
 
 type RadiusService struct {
@@ -18,12 +19,22 @@ func NewRadiusService(cfg radius.Config) *RadiusService {
 func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request) {
     var in radius.RadiusDisconnectInput
     if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-        http.Error(w, "bad json", 400)
+        httphelpers.WriteError(
+            w,
+            http.StatusBadRequest,
+            "bad_request",
+            "Invalid JSON request body.",
+        )
         return
     }
 
     if in.NASIP == "" || in.Secret == "" {
-        http.Error(w, "nas_ip and secret required", 400)
+        httphelpers.WriteError(
+            w,
+            http.StatusBadRequest,
+            "bad_request",
+            "Parameters 'nas_ip' and 'secret' are required.",
+        )
         return
     }
 
@@ -33,9 +44,14 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 
     out, err := radius.Disconnect(in)
     if err != nil {
-        http.Error(w, "radius disconnect failed: "+err.Error(), 500)
+        httphelpers.WriteError(
+            w,
+            http.StatusGatewayTimeout,
+            "radius_disconnect_failed",
+            err.Error(),
+        )
         return
     }
 
-    writeJSON(w, out)
+    httphelpers.WriteJSON(w, out)
 }
