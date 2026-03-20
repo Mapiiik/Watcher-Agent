@@ -1,0 +1,30 @@
+services:
+  watcher-agent-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    image: watcher-agent:dev
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./:/app
+
+    ports:
+      - "8080:8080"
+
+    # ICMP ping + SNMP UDP
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    # allow host access (e.g. to connect to local NMS)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

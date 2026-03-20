@@ -1,0 +1,28 @@
+services:
+  watcher-agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.prod
+    image: watcher-agent:prod
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "8080:8080"
+
+    # ICMP ping + SNMP UDP
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    # allow host access (e.g. to connect to local NMS)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
