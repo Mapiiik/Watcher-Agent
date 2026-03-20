@@ -2,9 +2,17 @@ package snmp
 
 import (
     "encoding/hex"
+    "fmt"
     "net"
     "strings"
 )
+
+func snmpText(v any) string {
+    if b, ok := v.([]byte); ok {
+        return string(b)
+    }
+    return fmt.Sprintf("%v", v)
+}
 
 func macToString(v any) string {
     // gosnmp often returns []byte for OctetString
