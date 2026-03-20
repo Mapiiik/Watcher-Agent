@@ -1,58 +1,58 @@
 package httpapi
 
 import (
-    "encoding/json"
-    "net/http"
+	"encoding/json"
+	"net/http"
 
-    "watcher-agent/src/domain/snmp"
-    "watcher-agent/src/httphelpers"
+	"watcher-agent/src/domain/snmp"
+	"watcher-agent/src/httphelpers"
 )
 
 type SNMPService struct {
-    cfg snmp.Config
+	cfg snmp.Config
 }
 
 type SNMPReadRequest struct {
-    Host      string `json:"host"`
-    Community string `json:"community"`
+	Host      string `json:"host"`
+	Community string `json:"community"`
 }
 
 func NewSNMPService(cfg snmp.Config) *SNMPService {
-    return &SNMPService{cfg: cfg}
+	return &SNMPService{cfg: cfg}
 }
 
 func (s *SNMPService) HandleRead(w http.ResponseWriter, r *http.Request) {
-    var req SNMPReadRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        httphelpers.WriteError(
-            w,
-            http.StatusBadRequest,
-            "bad_request",
-            "Invalid JSON request body.",
-        )
-        return
-    }
+	var req SNMPReadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httphelpers.WriteError(
+			w,
+			http.StatusBadRequest,
+			"bad_request",
+			"Invalid JSON request body.",
+		)
+		return
+	}
 
-    if req.Host == "" || req.Community == "" {
-        httphelpers.WriteError(
-            w,
-            http.StatusBadRequest,
-            "bad_request",
-            "Parameters 'host' and SNMP 'community' are required.",
-        )
-        return
-    }
+	if req.Host == "" || req.Community == "" {
+		httphelpers.WriteError(
+			w,
+			http.StatusBadRequest,
+			"bad_request",
+			"Parameters 'host' and SNMP 'community' are required.",
+		)
+		return
+	}
 
-    data, err := snmp.ReadRouterOSViaSNMP(s.cfg, req.Host, req.Community)
-    if err != nil {
-        httphelpers.WriteError(
-            w,
-            http.StatusBadGateway,
-            "snmp_read_failed",
-            "Failed to read data from the SNMP device.",
-        )
-        return
-    }
+	data, err := snmp.ReadRouterOSViaSNMP(s.cfg, req.Host, req.Community)
+	if err != nil {
+		httphelpers.WriteError(
+			w,
+			http.StatusBadGateway,
+			"snmp_read_failed",
+			"Failed to read data from the SNMP device.",
+		)
+		return
+	}
 
-    httphelpers.WriteJSON(w, data)
+	httphelpers.WriteJSON(w, data)
 }
