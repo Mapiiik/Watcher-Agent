@@ -16,6 +16,7 @@ import (
 type AppConfig struct {
 	ListenHttp  string
 	ListenHttps string
+	UseProxyProtocol bool
 
 	// for ACME TLS, if empty - self-signed cert will be used
 	Hostname    string
@@ -75,6 +76,7 @@ func LoadAppConfig() AppConfig {
 	return AppConfig{
 		ListenHttp:  envDefault("AGENT_LISTEN_HTTP", "0.0.0.0:80"),
 		ListenHttps: envDefault("AGENT_LISTEN_HTTPS", "0.0.0.0:443"),
+		UseProxyProtocol: envDefault("AGENT_USE_PROXY_PROTOCOL", "false") == "true",
 
 		Hostname:    envDefault("AGENT_HOSTNAME", ""),
 		CertDir:     envDefault("AGENT_CERT_DIR", "./certs"),

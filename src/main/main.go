@@ -7,6 +7,8 @@ import (
 
 	"watcher-agent/src/httpapi"
 	"watcher-agent/src/integration/nms"
+
+	"github.com/pires/go-proxyproto"
 )
 
 func main() {
@@ -95,7 +97,24 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Start HTTPS (blocking)
-	log.Printf("Watcher-Agent listening HTTPS on %s", srvHTTPS.Addr)
-	log.Fatal(srvHTTPS.ListenAndServeTLS("", ""))
+
+	if appCfg.UseProxyProtocol {
+		// Start HTTPS (blocking) with PROXY protocol support
+		ln, err := net.Listen("tcp", srvHTTPS.Addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		proxyListener := &proxyproto.Listener{
+			Listener: ln,
+		}
+		defer proxyListener.Close()
+
+		log.Printf("Watcher-Agent listening HTTPS on %s (PROXY protocol enabled)", srvHTTPS.Addr)
+		log.Fatal(srvHTTPS.ServeTLS(proxyListener, "", ""))
+	} else {
+		// Start HTTPS (blocking)
+		log.Printf("Watcher-Agent listening HTTPS on %s", srvHTTPS.Addr)
+		log.Fatal(srvHTTPS.ListenAndServeTLS("", ""))
+	}
 }
