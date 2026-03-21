@@ -56,7 +56,7 @@ func routerOSGuard(appCfg AppConfig, next http.Handler) http.Handler {
 		}
 
 		if appCfg.RouterOSQueryToken != "" {
-			if strings.TrimSpace(r.URL.Query().Get("t")) != appCfg.RouterOSQueryToken {
+			if strings.TrimSpace(r.URL.Query().Get("token")) != appCfg.RouterOSQueryToken {
 				httphelpers.WriteError(
 					w,
 					http.StatusForbidden,

@@ -21,7 +21,7 @@ func NewSNMPService(cfg snmp.Config) *SNMPService {
 	return &SNMPService{cfg: cfg}
 }
 
-func (s *SNMPService) HandleRead(w http.ResponseWriter, r *http.Request) {
+func (s *SNMPService) HandleRouterOSRead(w http.ResponseWriter, r *http.Request) {
 	var req SNMPReadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httphelpers.WriteError(

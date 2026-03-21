@@ -34,7 +34,7 @@ func main() {
 
 	// RouterOS provisioning (guarded by allowlist + optional query token)
 	mux.Handle(
-		"/routeros/provision/",
+		"/provision/routeros/",
 		routerOSGuard(appCfg, http.HandlerFunc(provisionSvc.HandleRouterOS)),
 	)
 
@@ -50,8 +50,8 @@ func main() {
 	)
 
 	mux.Handle(
-		"/api/snmp/read",
-		bearerAuth(appCfg, http.HandlerFunc(snmpSvc.HandleRead)),
+		"/api/snmp/read/routeros",
+		bearerAuth(appCfg, http.HandlerFunc(snmpSvc.HandleRouterOSRead)),
 	)
 
 	srv := &http.Server{
