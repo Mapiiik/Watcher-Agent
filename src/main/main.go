@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"net/http"
 
 	"watcher-agent/src/httpapi"
@@ -54,11 +55,47 @@ func main() {
 		bearerAuth(appCfg, http.HandlerFunc(snmpSvc.HandleRouterOSRead)),
 	)
 
-	srv := &http.Server{
-		Addr:    appCfg.ListenAddr,
-		Handler: mux,
+	// HTTP server (redirect)
+	redirect := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+
+		// Remove port from Host header if present
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			host = h
+		}
+
+		// Extract HTTPS port from config
+		_, tlsPort, err := net.SplitHostPort(appCfg.ListenHttps)
+		if err != nil {
+			http.Error(w, "invalid HTTPS address", http.StatusInternalServerError)
+			return
+		}
+
+		u := *r.URL
+		u.Scheme = "https"
+		u.Host = net.JoinHostPort(host, tlsPort)
+
+		http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
+	})
+	srvHTTP := &http.Server{
+		Addr:    appCfg.ListenHttp,
+		Handler: redirect,
 	}
 
-	log.Printf("Watcher-Agent listening on %s", appCfg.ListenAddr)
-	log.Fatal(srv.ListenAndServe())
+	// Start HTTP in background
+	go func() {
+		log.Printf("Watcher-Agent listening HTTP on %s", appCfg.ListenHttp)
+		if err := srvHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
+
+	// HTTPS server (ACME nebo self-signed)
+	srvHTTPS, err := buildHTTPServer(appCfg, mux)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Start HTTPS (blocking)
+	log.Printf("Watcher-Agent listening HTTPS on %s", srvHTTPS.Addr)
+	log.Fatal(srvHTTPS.ListenAndServeTLS("", ""))
 }
