@@ -86,7 +86,7 @@ func main() {
 
 	// Start HTTP in background
 	go func() {
-		log.Printf("Watcher-Agent listening HTTP on %s", appCfg.ListenHttp)
+		log.Printf("Watcher Agent listening HTTP on %s", appCfg.ListenHttp)
 		if err := srvHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server error: %v", err)
 		}
@@ -110,11 +110,11 @@ func main() {
 		}
 		defer proxyListener.Close()
 
-		log.Printf("Watcher-Agent listening HTTPS on %s (PROXY protocol enabled)", srvHTTPS.Addr)
+		log.Printf("Watcher Agent listening HTTPS on %s (PROXY protocol enabled)", srvHTTPS.Addr)
 		log.Fatal(srvHTTPS.ServeTLS(proxyListener, "", ""))
 	} else {
 		// Start HTTPS (blocking)
-		log.Printf("Watcher-Agent listening HTTPS on %s", srvHTTPS.Addr)
+		log.Printf("Watcher Agent listening HTTPS on %s", srvHTTPS.Addr)
 		log.Fatal(srvHTTPS.ListenAndServeTLS("", ""))
 	}
 }
