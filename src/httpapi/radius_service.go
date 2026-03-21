@@ -38,11 +38,7 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// pokud chceš, můžeš tady později:
-	// in.Port = int(s.cfg.Port)
-	// in.TimeoutMs = int(s.cfg.Timeout.Milliseconds())
-
-	out, err := radius.Disconnect(in)
+	out, err := radius.Disconnect(s.cfg, in)
 	if err != nil {
 		httphelpers.WriteError(
 			w,

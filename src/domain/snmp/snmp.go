@@ -109,7 +109,25 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
     return out, err
 }
 
-func ReadRouterOSViaSNMP(cfg Config, host, community string) (SNMPReadResult, error) {
+func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
+    g, err := snmpSession(cfg, host, community)
+    if err != nil {
+        return "", err
+    }
+    defer g.Conn.Close()
+
+    serial, err := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.3.0")
+    if err != nil {
+        return "", err
+    }
+    if serial == nil || strings.TrimSpace(*serial) == "" {
+        return "", fmt.Errorf("serial not found")
+    }
+
+    return *serial, nil
+}
+
+func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
     g, err := snmpSession(cfg, host, community)
     if err != nil {
         return SNMPReadResult{}, err

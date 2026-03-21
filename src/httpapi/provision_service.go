@@ -55,8 +55,36 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 
 	host := remoteIP(r)
 
-	// 1) SNMP read
-	snmpData, err := snmp.ReadRouterOSViaSNMP(
+	// 1) Read serial only
+	serial, err := snmp.ReadRouterOSSerial(
+		s.snmpCfg,
+		host,
+		dt.Community,
+	)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(
+			w,
+			":log error \"Watcher Agent: SNMP serial read failed: %s\"\n",
+			escapeROS(err.Error()),
+		)
+		return
+	}
+
+	// 2) Serial check
+	if serial != serialReq {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(
+			w,
+			":log error \"Watcher Agent: Serial mismatch (got %s, expected %s)\"\n",
+			escapeROS(serial),
+			escapeROS(serialReq),
+		)
+		return
+	}
+
+	// 3) Full SNMP read
+	snmpData, err := snmp.ReadRouterOS(
 		s.snmpCfg,
 		host,
 		dt.Community,
@@ -71,19 +99,7 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 2) Serial check
-	if snmpData.Device.Serial != serialReq {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(
-			w,
-			":log error \"Watcher Agent: Serial mismatch (got %s, expected %s)\"\n",
-			escapeROS(snmpData.Device.Serial),
-			escapeROS(serialReq),
-		)
-		return
-	}
-
-	// 3) Ask NMS for script
+	// 4) Ask NMS for script (and send SNMP data for inventory)
 	script, err := s.nms.GetRouterOSProvisionScript(
 		nms.RouterOSProvisionRequest{
 			AgentID:    s.cfg.AgentID,

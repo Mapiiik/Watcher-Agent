@@ -35,15 +35,18 @@ type RadiusDisconnectOutput struct {
     ErrorCauses []int  `json:"error_causes,omitempty"`
 }
 
-func Disconnect(in RadiusDisconnectInput) (RadiusDisconnectOutput, error) {
-    if in.Port <= 0 {
-        in.Port = 1700
-    }
-    if in.TimeoutMs <= 0 {
-        in.TimeoutMs = 2500
+func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, error) {
+    port := int(cfg.Port)
+    if in.Port > 0 {
+        port = in.Port
     }
 
-    addr := fmt.Sprintf("%s:%d", in.NASIP, in.Port)
+    timeout := cfg.Timeout
+    if in.TimeoutMs > 0 {
+        timeout = time.Duration(in.TimeoutMs) * time.Millisecond
+    }
+
+    addr := fmt.Sprintf("%s:%d", in.NASIP, port)
     udpAddr, err := net.ResolveUDPAddr("udp", addr)
     if err != nil {
         return RadiusDisconnectOutput{Success: false, Result: "Exception"}, err
@@ -68,42 +71,62 @@ func Disconnect(in RadiusDisconnectInput) (RadiusDisconnectOutput, error) {
         }
     }
 
-    ctx, cancel := context.WithTimeout(
-        context.Background(),
-        time.Duration(in.TimeoutMs)*time.Millisecond,
-    )
-    defer cancel()
+    var lastErr error
 
-    resp, err := radius.Exchange(ctx, pkt, udpAddr.String())
-    if err != nil {
-        return RadiusDisconnectOutput{
+    for attempt := 0; attempt <= cfg.Retries; attempt++ {
+        ctx, cancel := context.WithTimeout(
+            context.Background(),
+            timeout,
+        )
+
+        resp, err := radius.Exchange(ctx, pkt, udpAddr.String())
+        cancel()
+
+        if err != nil {
+            lastErr = err
+
+            // sleep only if we will retry again
+            if attempt < cfg.Retries {
+                time.Sleep(1000 * time.Millisecond)
+            }
+
+            continue
+        }
+
+        out := RadiusDisconnectOutput{
             Success: false,
-            Result:  "Exception",
-        }, err
+            Result:  fmt.Sprintf("Code-%d", resp.Code),
+        }
+
+        switch resp.Code {
+        case codeDisconnectACK:
+            out.Success = true
+            out.Result = "Disconnect-ACK"
+        case codeDisconnectNAK:
+            out.Result = "Disconnect-NAK"
+        default:
+            out.Result = fmt.Sprintf("Unsupported reply (code %d)", resp.Code)
+        }
+
+        // Extract all Error-Cause attributes (RFC 5176)
+        vals := resp.Attributes.Get(attrErrorCause)
+        if len(vals) == 4 {
+            code := int(vals[0])<<24 |
+                    int(vals[1])<<16 |
+                    int(vals[2])<<8  |
+                    int(vals[3])
+            out.ErrorCauses = append(out.ErrorCauses, code)
+        }
+
+        return out, nil
     }
 
-    out := RadiusDisconnectOutput{
+    if lastErr == nil {
+        lastErr = fmt.Errorf("radius disconnect failed without response")
+    }
+
+    return RadiusDisconnectOutput{
         Success: false,
-        Result:  fmt.Sprintf("Code-%d", resp.Code),
-    }
-
-    switch resp.Code {
-    case codeDisconnectACK:
-        out.Success = true
-        out.Result = "Disconnect-ACK"
-    case codeDisconnectNAK:
-        out.Success = false
-        out.Result = "Disconnect-NAK"
-    default:
-        out.Success = false
-        out.Result = fmt.Sprintf("Unsupported reply (code %d)", resp.Code)
-    }
-
-    // Extract Error-Cause(s)
-    if vals := resp.Attributes.Get(attrErrorCause); len(vals) == 4 {
-        code := int(vals[0])<<24 | int(vals[1])<<16 | int(vals[2])<<8 | int(vals[3])
-        out.ErrorCauses = append(out.ErrorCauses, code)
-    }
-
-    return out, nil
+        Result:  "Exception",
+    }, lastErr
 }

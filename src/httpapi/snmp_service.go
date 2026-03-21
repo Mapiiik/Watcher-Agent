@@ -43,7 +43,7 @@ func (s *SNMPService) HandleRouterOSRead(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	data, err := snmp.ReadRouterOSViaSNMP(s.cfg, req.Host, req.Community)
+	data, err := snmp.ReadRouterOS(s.cfg, req.Host, req.Community)
 	if err != nil {
 		httphelpers.WriteError(
 			w,
