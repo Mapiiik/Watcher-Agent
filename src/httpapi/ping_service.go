@@ -88,6 +88,8 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 	var sum time.Duration
 	var minRTT, maxRTT time.Duration
 
+	echoID := int(time.Now().UnixNano() & 0xffff)
+
 	for i := 0; i < req.Count; i++ {
 		sent++
 
@@ -95,7 +97,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 			Type: ipv4.ICMPTypeEcho,
 			Code: 0,
 			Body: &icmp.Echo{
-				ID:   1234,
+				ID:   echoID,
 				Seq:  i,
 				Data: []byte("watcher"),
 			},
