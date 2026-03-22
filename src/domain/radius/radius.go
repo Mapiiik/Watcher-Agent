@@ -2,6 +2,7 @@ package radius
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -121,12 +122,22 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 		return out, nil
 	}
 
-	if lastErr == nil {
-		lastErr = fmt.Errorf("radius disconnect failed without response")
+	if lastErr != nil {
+		if errors.Is(lastErr, context.DeadlineExceeded) {
+			return RadiusDisconnectOutput{
+				Success: false,
+				Result:  fmt.Sprintf("Timeout after %d attempts", cfg.Retries+1),
+			}, nil
+		}
+
+		return RadiusDisconnectOutput{
+			Success: false,
+			Result:  "Exception",
+		}, lastErr
 	}
 
 	return RadiusDisconnectOutput{
 		Success: false,
 		Result:  "Exception",
-	}, lastErr
+	}, fmt.Errorf("RADIUS disconnect failed without response")
 }

@@ -42,8 +42,8 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		httphelpers.WriteError(
 			w,
-			http.StatusGatewayTimeout,
-			"radius_disconnect_failed",
+			http.StatusInternalServerError,
+			"internal_error",
 			err.Error(),
 		)
 		return
