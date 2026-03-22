@@ -28,7 +28,7 @@ func NewProvisionService(
 }
 
 func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request) {
-	// URL: /routeros/provision/{deviceType}/{serial}
+	// URL: /provision/routeros/{deviceType}/{serial}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 4 {
 		w.Header().Set("Content-Type", "text/plain")

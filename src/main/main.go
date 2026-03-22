@@ -24,6 +24,10 @@ func main() {
 
 	nmsClient := nms.NewNMSClient(nmsCfg)
 
+	statusSvc := httpapi.NewStatusService(
+		appCfg.AgentID,
+		appCfg.DeviceTypes,
+	)
 	pingSvc := httpapi.NewPingService()
 	radiusSvc := httpapi.NewRadiusService(radiusCfg)
 	snmpSvc := httpapi.NewSNMPService(snmpCfg)
@@ -35,13 +39,14 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// RouterOS provisioning (guarded by allowlist + optional query token)
-	mux.Handle(
-		"/provision/routeros/",
-		routerOSGuard(appCfg, http.HandlerFunc(provisionSvc.HandleRouterOS)),
-	)
+	// Root endpoint for health checks
+	mux.HandleFunc("/", handleRoot)
 
 	// API endpoints (guarded by Bearer token)
+	mux.Handle(
+		"/api/status",
+		bearerAuth(appCfg, http.HandlerFunc(statusSvc.HandleStatus)),
+	)
 	mux.Handle(
 		"/api/ping",
 		bearerAuth(appCfg, http.HandlerFunc(pingSvc.HandlePing)),
@@ -55,6 +60,12 @@ func main() {
 	mux.Handle(
 		"/api/snmp/read/routeros",
 		bearerAuth(appCfg, http.HandlerFunc(snmpSvc.HandleRouterOSRead)),
+	)
+
+	// RouterOS provisioning (guarded by allowlist + optional query token)
+	mux.Handle(
+		"/provision/routeros/",
+		routerOSGuard(appCfg, http.HandlerFunc(provisionSvc.HandleRouterOS)),
 	)
 
 	// HTTP server (redirect)
