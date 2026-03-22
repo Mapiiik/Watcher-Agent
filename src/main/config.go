@@ -14,15 +14,15 @@ import (
 )
 
 type AppConfig struct {
-	ListenHttp  string
-	ListenHttps string
+	ListenHttp       string
+	ListenHttps      string
 	UseProxyProtocol bool
 
 	// for ACME TLS, if empty - self-signed cert will be used
-	Hostname    string
+	Hostname string
 	// directory for ACME cert storage (default: "./certs")
-	CertDir     string
-	
+	CertDir string
+
 	// Auth for API calls (ping/radius/snmp) from Watcher/NMS/CRM
 	APIToken string
 
@@ -74,12 +74,12 @@ func LoadAppConfig() AppConfig {
 	}
 
 	return AppConfig{
-		ListenHttp:  envDefault("AGENT_LISTEN_HTTP", "0.0.0.0:80"),
-		ListenHttps: envDefault("AGENT_LISTEN_HTTPS", "0.0.0.0:443"),
+		ListenHttp:       envDefault("AGENT_LISTEN_HTTP", "0.0.0.0:80"),
+		ListenHttps:      envDefault("AGENT_LISTEN_HTTPS", "0.0.0.0:443"),
 		UseProxyProtocol: envDefault("AGENT_USE_PROXY_PROTOCOL", "false") == "true",
 
-		Hostname:    envDefault("AGENT_HOSTNAME", ""),
-		CertDir:     envDefault("AGENT_CERT_DIR", "./certs"),
+		Hostname: envDefault("AGENT_HOSTNAME", ""),
+		CertDir:  envDefault("AGENT_CERT_DIR", "./certs"),
 
 		APIToken: mustEnv("AGENT_API_TOKEN"),
 		AgentID:  envDefault("AGENT_ID", "agent-1"),

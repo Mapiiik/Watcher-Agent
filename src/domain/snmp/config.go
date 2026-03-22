@@ -1,11 +1,11 @@
 package snmp
 
 import (
-    "time"
+	"time"
 )
 
 type Config struct {
-    Port    uint16
-    Timeout time.Duration
-    Retries int
+	Port    uint16
+	Timeout time.Duration
+	Retries int
 }
