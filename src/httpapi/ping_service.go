@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"watcher-agent/src/httphelpers"
-	"watcher-agent/src/infra/icmpengine"
+	"watcher-agent/src/infra/icmpengine4"
+	"watcher-agent/src/infra/icmpengine6"
 )
 
 type PingService struct {
@@ -48,6 +49,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set defaults if not provided
 	if req.Count <= 0 {
 		req.Count = 3
 	}
@@ -55,6 +57,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		req.TimeoutMs = 800
 	}
 
+	// Validate host (must be a valid IP address or resolvable hostname)
 	ip := net.ParseIP(req.Host)
 	if ip == nil {
 		ips, err := net.LookupIP(req.Host)
@@ -62,15 +65,40 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 			httphelpers.WriteError(
 				w,
 				http.StatusBadRequest,
-				"dns_failed",
+				"host_resolution_failed",
 				"The host could not be resolved.",
 			)
 			return
 		}
-		ip = ips[0]
+
+		// Prefer IPv6 if available
+		for _, candidate := range ips {
+			if candidate.To4() == nil {
+				ip = candidate
+				break
+			}
+		}
+
+		// Fallback to first IP (likely IPv4)
+		if ip == nil {
+			ip = ips[0]
+		}
 	}
 
-	engine := icmpengine.Get()
+	// Select appropriate ICMP engine based on IP version
+	var engine interface {
+		Acquire() error
+		Release()
+		Ping(net.IP, int, time.Duration) (time.Duration, bool, error)
+	}
+
+	if ip.To4() != nil {
+		engine = icmpengine4.Get()
+	} else {
+		engine = icmpengine6.Get()
+	}
+
+	// Acquire engine resources (e.g., open raw socket) before pinging
 	if err := engine.Acquire(); err != nil {
 		httphelpers.WriteError(
 			w,

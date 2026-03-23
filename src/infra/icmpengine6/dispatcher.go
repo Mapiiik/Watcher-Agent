@@ -1,10 +1,10 @@
-package icmpengine
+package icmpengine6
 
 import (
 	"net"
 
 	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 func (e *Engine) readLoop() {
@@ -27,8 +27,8 @@ func (e *Engine) readLoop() {
 			continue
 		}
 
-		rm, err := icmp.ParseMessage(1, buf[:n])
-		if err != nil || rm.Type != ipv4.ICMPTypeEchoReply {
+		rm, err := icmp.ParseMessage(58, buf[:n])
+		if err != nil || rm.Type != ipv6.ICMPTypeEchoReply {
 			continue
 		}
 

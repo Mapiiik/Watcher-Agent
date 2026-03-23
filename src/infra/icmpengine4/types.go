@@ -1,4 +1,4 @@
-package icmpengine
+package icmpengine4
 
 import (
 	"net"

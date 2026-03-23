@@ -1,4 +1,4 @@
-package icmpengine
+package icmpengine6
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 type Engine struct {
@@ -39,7 +39,7 @@ func (e *Engine) Acquire() error {
 	defer e.mu.Unlock()
 
 	if e.refCount == 0 {
-		conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+		conn, err := icmp.ListenPacket("ip6:ipv6-icmp", "::")
 		if err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ func (e *Engine) Ping(ip net.IP, seq int, timeout time.Duration) (time.Duration,
 	}()
 
 	msg := icmp.Message{
-		Type: ipv4.ICMPTypeEcho,
+		Type: ipv6.ICMPTypeEchoRequest,
 		Code: 0,
 		Body: &icmp.Echo{
 			ID:   id,
