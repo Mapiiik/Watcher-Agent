@@ -12,8 +12,8 @@ import (
 )
 
 func main() {
+	// Load configuration
 	appCfg := LoadAppConfig()
-
 	radiusCfg := LoadRadiusConfig()
 	snmpCfg := LoadSNMPConfig()
 	nmsCfg := LoadNMSConfig()
@@ -22,8 +22,10 @@ func main() {
 		DeviceTypes: appCfg.DeviceTypes,
 	}
 
+	// Initialise NMS API client
 	nmsClient := nms.NewNMSClient(nmsCfg)
 
+	// Create HTTP handlers
 	statusSvc := httpapi.NewStatusService(
 		appCfg.AgentID,
 		appCfg.DeviceTypes,
@@ -37,6 +39,7 @@ func main() {
 		nmsClient,
 	)
 
+	// HTTP request multiplexer
 	mux := http.NewServeMux()
 
 	// Root endpoint for health checks
@@ -103,7 +106,7 @@ func main() {
 		}
 	}()
 
-	// HTTPS server (ACME nebo self-signed)
+	// HTTPS server (ACME or self-signed)
 	srvHTTPS, err := buildHTTPServer(appCfg, mux)
 	if err != nil {
 		log.Fatal(err)

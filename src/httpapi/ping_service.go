@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
-
 	"watcher-agent/src/httphelpers"
+	"watcher-agent/src/infra/icmpengine"
 )
 
 type PingService struct {
-	// zatím prázdné – ale připravené na budoucí config
+	// prepared for future configuration options if needed
 }
 
 type PingRequest struct {
@@ -72,74 +70,48 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		ip = ips[0]
 	}
 
-	c, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-	if err != nil {
+	engine := icmpengine.Get()
+	if err := engine.Acquire(); err != nil {
 		httphelpers.WriteError(
 			w,
 			http.StatusInternalServerError,
 			"icmp_unavailable",
-			"ICMP listen failed (need CAP_NET_RAW or root).",
+			"ICMP engine unavailable.",
 		)
 		return
 	}
-	defer c.Close()
+	defer engine.Release()
 
 	var sent, recv int
 	var sum time.Duration
 	var minRTT, maxRTT time.Duration
 
-	echoID := int(time.Now().UnixNano() & 0xffff)
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 
-	for i := 0; i < req.Count; i++ {
+	for seq := 0; seq < req.Count; seq++ {
 		sent++
 
-		msg := icmp.Message{
-			Type: ipv4.ICMPTypeEcho,
-			Code: 0,
-			Body: &icmp.Echo{
-				ID:   echoID,
-				Seq:  i,
-				Data: []byte("watcher"),
-			},
-		}
-
-		b, _ := msg.Marshal(nil)
-
-		start := time.Now()
-		_ = c.SetDeadline(time.Now().Add(time.Duration(req.TimeoutMs) * time.Millisecond))
-
-		if _, err := c.WriteTo(b, &net.IPAddr{IP: ip}); err != nil {
+		rtt, ok, err := engine.Ping(ip, seq, timeout)
+		if err != nil || !ok {
 			continue
 		}
 
-		buf := make([]byte, 1500)
-		n, _, err := c.ReadFrom(buf)
-		if err != nil {
-			continue
+		recv++
+
+		if recv == 1 || rtt < minRTT {
+			minRTT = rtt
+		}
+		if rtt > maxRTT {
+			maxRTT = rtt
 		}
 
-		rm, err := icmp.ParseMessage(1, buf[:n])
-		if err == nil && rm.Type == ipv4.ICMPTypeEchoReply {
-			recv++
-
-			rtt := time.Since(start)
-
-			if recv == 1 || rtt < minRTT {
-				minRTT = rtt
-			}
-			if rtt > maxRTT {
-				maxRTT = rtt
-			}
-
-			sum += rtt
-		}
+		sum += rtt
 	}
 
 	lost := sent - recv
-	loss := float64(lost) / float64(sent) * 100.0
-	avg := 0.0
-	min := 0.0
-	max := 0.0
+	lossPct := float64(lost) / float64(sent) * 100.0
+
+	var avg, min, max float64
 	if recv > 0 {
 		avg = float64(sum) / float64(recv) / float64(time.Millisecond)
 		min = float64(minRTT) / float64(time.Millisecond)
@@ -152,7 +124,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		Sent:      sent,
 		Received:  recv,
 		Lost:      lost,
-		LossPct:   loss,
+		LossPct:   lossPct,
 		RTTMinMs:  min,
 		RTTAvgMs:  avg,
 		RTTMaxMs:  max,
