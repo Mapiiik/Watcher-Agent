@@ -37,6 +37,7 @@ func main() {
 	nmsClient := nms.NewNMSClient(nmsCfg)
 
 	// Create HTTP handlers
+	rootSvc := httpapi.NewRootService(appCfg.AgentID)
 	statusSvc := httpapi.NewStatusService(
 		appCfg.AgentID,
 		appCfg.DeviceTypes,
@@ -54,7 +55,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Root endpoint for health checks
-	mux.HandleFunc("/", handleRoot)
+	mux.HandleFunc("/", rootSvc.HandleRoot)
 
 	// API endpoints (guarded by Bearer token)
 	mux.Handle(
