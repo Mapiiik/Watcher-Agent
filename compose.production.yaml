@@ -1,0 +1,41 @@
+services:
+  watcher-agent:
+    image: ghcr.io/mapiiik/watcher-agent:latest
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    env_file:
+      - .env
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    # ICMP ping + SNMP UDP
+    cap_add:
+      - NET_RAW
+      - NET_BIND_SERVICE
+
+    # allow host access (e.g. to connect to local NMS)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: 600
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_LABEL_ENABLE: "true"
