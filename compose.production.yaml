@@ -7,6 +7,9 @@ services:
     env_file:
       - .env
 
+    volumes:
+      - agent_certs:/app/certs/
+
     ports:
       - "80:80"
       - "443:443"
@@ -39,3 +42,6 @@ services:
       WATCHTOWER_POLL_INTERVAL: 600
       WATCHTOWER_INCLUDE_STOPPED: "false"
       WATCHTOWER_LABEL_ENABLE: "true"
+
+volumes:
+  agent_certs:

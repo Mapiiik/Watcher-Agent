@@ -9,6 +9,9 @@ services:
     env_file:
       - .env
 
+    volumes:
+      - agent_certs:/app/certs/
+
     ports:
       - "80:80"
       - "443:443"
@@ -27,3 +30,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  agent_certs:
