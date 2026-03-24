@@ -17,7 +17,7 @@ services:
     # ICMP ping + SNMP UDP
     cap_add:
       - NET_RAW
-      - NET_ADMIN
+      - NET_BIND_SERVICE
 
     # allow host access (e.g. to connect to local NMS)
     extra_hosts:

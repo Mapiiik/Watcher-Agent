@@ -91,7 +91,7 @@ func (e *Engine) Ping(ip net.IP, seq int, timeout time.Duration) (time.Duration,
 		Body: &icmp.Echo{
 			ID:   id,
 			Seq:  seq,
-			Data: []byte("watcher"),
+			Data: []byte("watcher-agent"),
 		},
 	}
 

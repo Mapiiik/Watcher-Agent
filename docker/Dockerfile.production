@@ -20,6 +20,4 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=build /app/watcher-agent /app/watcher-agent
 
-EXPOSE 8080
-
 ENTRYPOINT ["/app/watcher-agent"]

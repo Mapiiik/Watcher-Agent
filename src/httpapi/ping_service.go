@@ -104,7 +104,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 			w,
 			http.StatusInternalServerError,
 			"icmp_unavailable",
-			"ICMP engine unavailable.",
+			"ICMP engine unavailable (need CAP_NET_RAW or root).",
 		)
 		return
 	}

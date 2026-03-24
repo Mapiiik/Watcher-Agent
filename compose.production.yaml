@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.production
     restart: unless-stopped
+    stop_grace_period: 60s
 
     env_file:
       - .env
@@ -15,7 +16,7 @@ services:
     # ICMP ping + SNMP UDP
     cap_add:
       - NET_RAW
-      - NET_ADMIN
+      - NET_BIND_SERVICE
 
     # allow host access (e.g. to connect to local NMS)
     extra_hosts:
