@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net"
 	"net/http"
-	"strings"
 )
 
 func remoteIP(r *http.Request) string {
@@ -12,10 +11,4 @@ func remoteIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func escapeROS(s string) string {
-	s = strings.ReplaceAll(s, `"`, `'`)
-	s = strings.ReplaceAll(s, "\n", " ")
-	return s
 }

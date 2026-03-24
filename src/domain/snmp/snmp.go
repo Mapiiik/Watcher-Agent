@@ -3,6 +3,7 @@ package snmp
 import (
 	"fmt"
 	"github.com/gosnmp/gosnmp"
+	"log"
 	"net"
 	"sort"
 	"strings"
@@ -73,31 +74,6 @@ func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
 	return snmpText(pkt.Variables[0].Value), nil
 }
 
-func snmpGetInt(g *gosnmp.GoSNMP, oid string) (int, error) {
-	pkt, err := g.Get([]string{oid})
-	if err != nil {
-		return 0, err
-	}
-	if len(pkt.Variables) == 0 {
-		return 0, nil
-	}
-	v := pkt.Variables[0]
-	switch t := v.Value.(type) {
-	case int:
-		return t, nil
-	case int64:
-		return int(t), nil
-	case uint:
-		return int(t), nil
-	case uint32:
-		return int(t), nil
-	case uint64:
-		return int(t), nil
-	default:
-		return 0, nil
-	}
-}
-
 func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error) {
 	out := map[string]gosnmp.SnmpPDU{}
 	err := g.Walk(baseOID, func(pdu gosnmp.SnmpPDU) error {
@@ -114,7 +90,12 @@ func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer g.Conn.Close()
+
+	defer func() {
+		if err := g.Conn.Close(); err != nil {
+			log.Printf("SNMP connection termination failed: %v", err)
+		}
+	}()
 
 	serial, err := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.3.0")
 	if err != nil {
@@ -132,7 +113,12 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	if err != nil {
 		return SNMPReadResult{}, err
 	}
-	defer g.Conn.Close()
+
+	defer func() {
+		if err := g.Conn.Close(); err != nil {
+			log.Printf("SNMP connection termination failed: %v", err)
+		}
+	}()
 
 	serial, err := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.3.0")
 	if err != nil || serial == nil {

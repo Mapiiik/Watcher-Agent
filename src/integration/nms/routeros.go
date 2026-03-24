@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"watcher-agent/src/domain/snmp"
 )
@@ -31,9 +32,17 @@ func (c *NMSClient) GetRouterOSProvisionScript(req RouterOSProvisionRequest) (st
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Watcher NMS connection termination failed: %v", err)
+		}
+	}()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("nms error %d: %s", resp.StatusCode, string(body))
 	}

@@ -1,11 +1,11 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
 	"watcher-agent/src/domain/snmp"
+	"watcher-agent/src/httphelpers"
 	"watcher-agent/src/integration/nms"
 )
 
@@ -31,10 +31,9 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 	// URL: /provision/routeros/{deviceType}/{serial}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 4 {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(
+		httphelpers.WriteRouterOSError(
 			w,
-			":log error \"Watcher Agent: Invalid provisioning URL\"\n",
+			"Invalid provisioning URL",
 		)
 		return
 	}
@@ -44,11 +43,10 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 
 	dt, ok := s.cfg.DeviceTypes[deviceType]
 	if !ok || strings.TrimSpace(dt.Community) == "" {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(
+		httphelpers.WriteRouterOSError(
 			w,
-			":log error \"Watcher Agent: Unknown device type or missing community (%s)\"\n",
-			escapeROS(deviceType),
+			"Unknown device type or missing community (%s)",
+			deviceType,
 		)
 		return
 	}
@@ -62,23 +60,21 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		dt.Community,
 	)
 	if err != nil {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(
+		httphelpers.WriteRouterOSError(
 			w,
-			":log error \"Watcher Agent: SNMP serial read failed: %s\"\n",
-			escapeROS(err.Error()),
+			"SNMP serial read failed: %s",
+			err.Error(),
 		)
 		return
 	}
 
 	// 2) Serial check
 	if serial != serialReq {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(
+		httphelpers.WriteRouterOSError(
 			w,
-			":log error \"Watcher Agent: Serial mismatch (got %s, expected %s)\"\n",
-			escapeROS(serial),
-			escapeROS(serialReq),
+			"Serial mismatch (got %s, expected %s)",
+			serial,
+			serialReq,
 		)
 		return
 	}
@@ -90,11 +86,10 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		dt.Community,
 	)
 	if err != nil {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(
+		httphelpers.WriteRouterOSError(
 			w,
-			":log error \"Watcher Agent: SNMP read failed: %s\"\n",
-			escapeROS(err.Error()),
+			"SNMP read failed: %s",
+			err.Error(),
 		)
 		return
 	}
@@ -110,16 +105,15 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		},
 	)
 	if err != nil {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(
+		httphelpers.WriteRouterOSError(
 			w,
-			":log error \"Watcher Agent: NMS provision failed: %s\"\n",
-			escapeROS(err.Error()),
+			"NMS provision failed: %s",
+			err.Error(),
 		)
 		return
 	}
 
-	// 4) Return script to RouterOS
+	// 5) Return script to RouterOS
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte(script))
 }

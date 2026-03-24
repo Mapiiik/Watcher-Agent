@@ -15,6 +15,11 @@ const (
 	codeDisconnectRequest radius.Code = 40
 	codeDisconnectACK     radius.Code = 41
 	codeDisconnectNAK     radius.Code = 42
+	// "resultException" indicates a local or protocol-level failure
+	// before a valid RADIUS response was received.
+	resultException     string = "Exception"
+	resultDisconnectACK string = "Disconnect-ACK"
+	resultDisconnectNAK string = "Disconnect-NAK"
 )
 
 // RFC 5176 Error-Cause attribute
@@ -50,25 +55,31 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 	addr := fmt.Sprintf("%s:%d", in.NASIP, port)
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
-		return RadiusDisconnectOutput{Success: false, Result: "Exception"}, err
+		return RadiusDisconnectOutput{Success: false, Result: resultException}, err
 	}
 
 	pkt := radius.New(codeDisconnectRequest, []byte(in.Secret))
 
 	if in.UserName != "" {
-		rfc2865.UserName_SetString(pkt, in.UserName)
+		if err := rfc2865.UserName_SetString(pkt, in.UserName); err != nil {
+			return RadiusDisconnectOutput{Success: false, Result: resultException}, err
+		}
 	}
 	if in.AcctSessionID != "" {
 		pkt.Add(radius.Type(44), radius.Attribute(in.AcctSessionID))
 	}
 	if in.FramedIP != "" {
 		if ip := net.ParseIP(in.FramedIP); ip != nil {
-			rfc2865.FramedIPAddress_Set(pkt, ip)
+			if err := rfc2865.FramedIPAddress_Set(pkt, ip); err != nil {
+				return RadiusDisconnectOutput{Success: false, Result: resultException}, err
+			}
 		}
 	}
 	if in.NASIP != "" {
 		if ip := net.ParseIP(in.NASIP); ip != nil {
-			rfc2865.NASIPAddress_Set(pkt, ip)
+			if err := rfc2865.NASIPAddress_Set(pkt, ip); err != nil {
+				return RadiusDisconnectOutput{Success: false, Result: resultException}, err
+			}
 		}
 	}
 
@@ -102,15 +113,15 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 		switch resp.Code {
 		case codeDisconnectACK:
 			out.Success = true
-			out.Result = "Disconnect-ACK"
+			out.Result = resultDisconnectACK
 		case codeDisconnectNAK:
-			out.Result = "Disconnect-NAK"
+			out.Result = resultDisconnectNAK
 		default:
 			out.Result = fmt.Sprintf("Unsupported reply (code %d)", resp.Code)
 		}
 
 		// Extract all Error-Cause attributes (RFC 5176)
-		vals := resp.Attributes.Get(attrErrorCause)
+		vals := resp.Get(attrErrorCause)
 		if len(vals) == 4 {
 			code := int(vals[0])<<24 |
 				int(vals[1])<<16 |
@@ -132,12 +143,12 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 
 		return RadiusDisconnectOutput{
 			Success: false,
-			Result:  "Exception",
+			Result:  resultException,
 		}, lastErr
 	}
 
 	return RadiusDisconnectOutput{
 		Success: false,
-		Result:  "Exception",
+		Result:  resultException,
 	}, fmt.Errorf("RADIUS disconnect failed without response")
 }
