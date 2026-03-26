@@ -1,4 +1,7 @@
-FROM golang:1.26.1-alpine
+ARG GO_VERSION="1.26.1"
+FROM golang:${GO_VERSION}-alpine
+
+WORKDIR /app
 
 RUN apk add --no-cache \
     git \
@@ -7,8 +10,6 @@ RUN apk add --no-cache \
 
 RUN curl -sSfL https://golangci-lint.run/install.sh \
     | sh -s -- -b /usr/local/bin v2.11.4
-
-WORKDIR /app
 
 #CMD ["go", "mod", "tidy"]
 #CMD ["golangci-lint", "run"]
