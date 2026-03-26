@@ -1,5 +1,6 @@
 # ---------- build ----------
-FROM golang:1.26.1-alpine AS build
+ARG GO_VERSION="1.26.1"
+FROM golang:${GO_VERSION}-alpine AS build
 
 WORKDIR /app
 
@@ -8,8 +9,11 @@ RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
 
+ARG TARGETOS="linux"
+ARG TARGETARCH="amd64"
+
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o watcher-agent ./src/main
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o watcher-agent ./src/main
 
 # ---------- runtime ----------
 FROM alpine:latest
