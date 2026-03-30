@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -50,12 +51,13 @@ type SNMPReadResult struct {
 
 func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 	g := &gosnmp.GoSNMP{
-		Target:    host,
-		Port:      cfg.Port,
-		Community: community,
-		Version:   gosnmp.Version2c,
-		Timeout:   cfg.Timeout,
-		Retries:   cfg.Retries,
+		Target:         host,
+		Port:           cfg.Port,
+		Community:      community,
+		Version:        gosnmp.Version2c,
+		Timeout:        cfg.Timeout,
+		Retries:        cfg.Retries,
+		MaxRepetitions: 25, // GETBULK max-repetitions, to avoid too large responses that might cause timeouts
 	}
 	if err := g.Connect(); err != nil {
 		return nil, err
@@ -149,11 +151,12 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	// INTERFACES
 	ifIdxMap, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.1") // suffix is index
 	ifTable, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1")    // suffix like "2.<idx>" etc
+	ifAlias, _ := walkMap(g, ".1.3.6.1.2.1.31.1.1.1.18")
 	wlAp, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")
 	wlStat, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1")
 	wl60g, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")
 
-	indexes := []int{}
+	indexes := make([]int, 0, len(ifIdxMap))
 	for _, pdu := range ifIdxMap {
 		switch v := pdu.Value.(type) {
 		case int:
@@ -166,30 +169,30 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	}
 	sort.Ints(indexes)
 
+	res.Interfaces = make([]SNMPInterface, 0, len(indexes))
+
 	for _, ifIndex := range indexes {
+		idx := strconv.Itoa(ifIndex)
+
 		getText := func(key string) *string {
-			if p, ok := ifTable[key+"."+fmt.Sprint(ifIndex)]; ok {
+			if p, ok := ifTable[key+"."+idx]; ok {
 				return snmpText(p.Value)
 			}
 			return nil
 		}
 		getInt := func(key string) int {
-			if p, ok := ifTable[key+"."+fmt.Sprint(ifIndex)]; ok {
-				switch t := p.Value.(type) {
-				case int:
-					return t
-				case int64:
-					return int(t)
-				case uint32:
-					return int(t)
-				case uint64:
-					return int(t)
+			if p, ok := ifTable[key+"."+idx]; ok {
+				if v := snmpInt(p.Value); v != nil {
+					return *v
 				}
 			}
 			return 0
 		}
 
-		comment, _ := snmpGetText(g, ".1.3.6.1.2.1.31.1.1.1.18."+fmt.Sprint(ifIndex))
+		var comment *string
+		if p, ok := ifAlias[idx]; ok {
+			comment = snmpText(p.Value)
+		}
 
 		ifc := SNMPInterface{
 			InterfaceIndex: ifIndex,
@@ -198,34 +201,34 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 			AdminStatus:    getInt("7"),
 			OperStatus:     getInt("8"),
 			InterfaceType:  getInt("3"),
-			MACAddress:     macToString(ifTable["6."+fmt.Sprint(ifIndex)].Value),
+			MACAddress:     macToString(ifTable["6."+idx].Value),
 		}
 
 		// Wireless AP
-		if p, ok := wlAp["4."+fmt.Sprint(ifIndex)]; ok && p.Value != nil {
+		if p, ok := wlAp["4."+idx]; ok && p.Value != nil {
 			ifc.SSID = snmpText(p.Value)
-			ifc.BSSID = macToString(wlAp["5."+fmt.Sprint(ifIndex)].Value)
-			ifc.Band = snmpText(wlAp["8."+fmt.Sprint(ifIndex)].Value)
-			ifc.Frequency = snmpInt(wlAp["7."+fmt.Sprint(ifIndex)].Value)
-			ifc.NoiseFloor = snmpInt(wlAp["9."+fmt.Sprint(ifIndex)].Value)
-			ifc.ClientCount = snmpInt(wlAp["6."+fmt.Sprint(ifIndex)].Value)
-			ifc.OverallTxCCQ = snmpInt(wlAp["10."+fmt.Sprint(ifIndex)].Value)
+			ifc.BSSID = macToString(wlAp["5."+idx].Value)
+			ifc.Band = snmpText(wlAp["8."+idx].Value)
+			ifc.Frequency = snmpInt(wlAp["7."+idx].Value)
+			ifc.NoiseFloor = snmpInt(wlAp["9."+idx].Value)
+			ifc.ClientCount = snmpInt(wlAp["6."+idx].Value)
+			ifc.OverallTxCCQ = snmpInt(wlAp["10."+idx].Value)
 
 			// Wireless station
-		} else if p, ok := wlStat["5."+fmt.Sprint(ifIndex)]; ok && p.Value != nil {
+		} else if p, ok := wlStat["5."+idx]; ok && p.Value != nil {
 			ifc.SSID = snmpText(p.Value)
-			ifc.BSSID = macToString(wlStat["6."+fmt.Sprint(ifIndex)].Value)
-			ifc.Band = snmpText(wlStat["8."+fmt.Sprint(ifIndex)].Value)
-			ifc.Frequency = snmpInt(wlStat["7."+fmt.Sprint(ifIndex)].Value)
+			ifc.BSSID = macToString(wlStat["6."+idx].Value)
+			ifc.Band = snmpText(wlStat["8."+idx].Value)
+			ifc.Frequency = snmpInt(wlStat["7."+idx].Value)
 
 			// Wireless 60 GHz
-		} else if p, ok := wl60g["3."+fmt.Sprint(ifIndex)]; ok && p.Value != nil {
+		} else if p, ok := wl60g["3."+idx]; ok && p.Value != nil {
 			ifc.SSID = snmpText(p.Value)
 			// BSSID only for stations (value 1)
-			if v := snmpInt(wl60g["2."+fmt.Sprint(ifIndex)].Value); v != nil && *v == 1 {
-				ifc.BSSID = macToString(wl60g["5."+fmt.Sprint(ifIndex)].Value)
+			if v := snmpInt(wl60g["2."+idx].Value); v != nil && *v == 1 {
+				ifc.BSSID = macToString(wl60g["5."+idx].Value)
 			}
-			ifc.Frequency = snmpInt(wl60g["6."+fmt.Sprint(ifIndex)].Value)
+			ifc.Frequency = snmpInt(wl60g["6."+idx].Value)
 		}
 
 		res.Interfaces = append(res.Interfaces, ifc)
