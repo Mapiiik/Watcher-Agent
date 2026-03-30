@@ -30,10 +30,10 @@ type SNMPInterface struct {
 	SSID           *string `json:"ssid"`
 	BSSID          *string `json:"bssid"`
 	Band           *string `json:"band"`
-	Frequency      int     `json:"frequency"`
-	NoiseFloor     int     `json:"noise_floor"`
-	ClientCount    int     `json:"client_count"`
-	OverallTxCCQ   int     `json:"overall_tx_ccq"`
+	Frequency      *int    `json:"frequency"`
+	NoiseFloor     *int    `json:"noise_floor"`
+	ClientCount    *int    `json:"client_count"`
+	OverallTxCCQ   *int    `json:"overall_tx_ccq"`
 }
 
 type SNMPIPAddress struct {
@@ -206,26 +206,26 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 			ifc.SSID = snmpText(p.Value)
 			ifc.BSSID = macToString(wlAp["5."+fmt.Sprint(ifIndex)].Value)
 			ifc.Band = snmpText(wlAp["8."+fmt.Sprint(ifIndex)].Value)
-			ifc.Frequency = toInt(wlAp["7."+fmt.Sprint(ifIndex)].Value)
-			ifc.NoiseFloor = toInt(wlAp["9."+fmt.Sprint(ifIndex)].Value)
-			ifc.ClientCount = toInt(wlAp["6."+fmt.Sprint(ifIndex)].Value)
-			ifc.OverallTxCCQ = toInt(wlAp["10."+fmt.Sprint(ifIndex)].Value)
+			ifc.Frequency = snmpInt(wlAp["7."+fmt.Sprint(ifIndex)].Value)
+			ifc.NoiseFloor = snmpInt(wlAp["9."+fmt.Sprint(ifIndex)].Value)
+			ifc.ClientCount = snmpInt(wlAp["6."+fmt.Sprint(ifIndex)].Value)
+			ifc.OverallTxCCQ = snmpInt(wlAp["10."+fmt.Sprint(ifIndex)].Value)
 
 			// Wireless station
 		} else if p, ok := wlStat["5."+fmt.Sprint(ifIndex)]; ok && p.Value != nil {
 			ifc.SSID = snmpText(p.Value)
 			ifc.BSSID = macToString(wlStat["6."+fmt.Sprint(ifIndex)].Value)
 			ifc.Band = snmpText(wlStat["8."+fmt.Sprint(ifIndex)].Value)
-			ifc.Frequency = toInt(wlStat["7."+fmt.Sprint(ifIndex)].Value)
+			ifc.Frequency = snmpInt(wlStat["7."+fmt.Sprint(ifIndex)].Value)
 
 			// Wireless 60 GHz
 		} else if p, ok := wl60g["3."+fmt.Sprint(ifIndex)]; ok && p.Value != nil {
 			ifc.SSID = snmpText(p.Value)
 			// BSSID only for stations (value 1)
-			if toInt(wl60g["2."+fmt.Sprint(ifIndex)].Value) == 1 {
+			if v := snmpInt(wl60g["2."+fmt.Sprint(ifIndex)].Value); v != nil && *v == 1 {
 				ifc.BSSID = macToString(wl60g["5."+fmt.Sprint(ifIndex)].Value)
 			}
-			ifc.Frequency = toInt(wl60g["6."+fmt.Sprint(ifIndex)].Value)
+			ifc.Frequency = snmpInt(wl60g["6."+fmt.Sprint(ifIndex)].Value)
 		}
 
 		res.Interfaces = append(res.Interfaces, ifc)
@@ -262,7 +262,11 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 			continue
 		}
 
-		ifIndex := toInt(ifi.Value)
+		ifIndexPtr := snmpInt(ifi.Value)
+		if ifIndexPtr == nil {
+			continue
+		}
+		ifIndex := *ifIndexPtr
 
 		cidrStr := fmt.Sprintf("%s/%d", *ipStr, cidr)
 		res.IPAddresses = append(res.IPAddresses, SNMPIPAddress{
@@ -273,19 +277,4 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	}
 
 	return res, nil
-}
-
-func toInt(v any) int {
-	switch t := v.(type) {
-	case int:
-		return t
-	case int64:
-		return int(t)
-	case uint32:
-		return int(t)
-	case uint64:
-		return int(t)
-	default:
-		return 0
-	}
 }

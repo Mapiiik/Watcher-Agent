@@ -25,6 +25,24 @@ func snmpText(v any) *string {
 	return &s
 }
 
+func snmpInt(v any) *int {
+	var i int
+
+	switch t := v.(type) {
+	case int:
+		i = t
+	case int64:
+		i = int(t)
+	case uint32:
+		i = int(t)
+	case uint64:
+		i = int(t)
+	default:
+		return nil
+	}
+	return &i
+}
+
 func macToString(v any) *string {
 	b, ok := v.([]byte)
 	if !ok || len(b) == 0 {
