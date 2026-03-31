@@ -20,13 +20,14 @@ type SNMPDevice struct {
 	FirmwareVersion   *string `json:"firmware_version"`
 }
 
+// Pointer fields are used to preserve null semantics when SNMP values are missing
 type SNMPInterface struct {
 	InterfaceIndex int     `json:"interface_index"`
 	Name           *string `json:"name"`
 	Comment        *string `json:"comment"`
-	AdminStatus    int     `json:"interface_admin_status"`
-	OperStatus     int     `json:"interface_oper_status"`
-	InterfaceType  int     `json:"interface_type"`
+	AdminStatus    *int    `json:"interface_admin_status"`
+	OperStatus     *int    `json:"interface_oper_status"`
+	InterfaceType  *int    `json:"interface_type"`
 	MACAddress     *string `json:"mac_address"`
 	SSID           *string `json:"ssid"`
 	BSSID          *string `json:"bssid"`
@@ -57,7 +58,7 @@ func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 		Version:        gosnmp.Version2c,
 		Timeout:        cfg.Timeout,
 		Retries:        cfg.Retries,
-		MaxRepetitions: 25, // GETBULK max-repetitions, to avoid too large responses that might cause timeouts
+		MaxRepetitions: 100,
 	}
 	if err := g.Connect(); err != nil {
 		return nil, err
@@ -85,6 +86,15 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
 		return nil
 	})
 	return out, err
+}
+
+func hasOID(g *gosnmp.GoSNMP, oid string) bool {
+	pkt, err := g.Get([]string{oid})
+	if err != nil || len(pkt.Variables) == 0 {
+		return false
+	}
+	return pkt.Variables[0].Type != gosnmp.NoSuchObject &&
+		pkt.Variables[0].Type != gosnmp.NoSuchInstance
 }
 
 func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
@@ -149,13 +159,34 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	}
 
 	// INTERFACES
-	ifIdxMap, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.1") // suffix is index
-	ifTable, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1")    // suffix like "2.<idx>" etc
-	ifAlias, _ := walkMap(g, ".1.3.6.1.2.1.31.1.1.1.18")
-	wlAp, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")
-	wlStat, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1")
-	wl60g, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")
 
+	// interface indexes
+	ifIdxMap, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.1") // suffix is index
+	// required for basic info (ifTable)
+	ifDescr, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.2")
+	ifAdmin, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.7")
+	ifOper, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.8")
+	ifType, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.3")
+	ifPhys, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.6")
+	// interface aliases (comments)
+	ifAlias, _ := walkMap(g, ".1.3.6.1.2.1.31.1.1.1.18")
+
+	var wlAp, wlStat, wl60g map[string]gosnmp.SnmpPDU
+
+	// optional wireless AP table
+	if hasOID(g, ".1.3.6.1.4.1.14988.1.1.1.3.1") {
+		wlAp, _ = walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")
+	}
+	// optional wireless station table
+	if hasOID(g, ".1.3.6.1.4.1.14988.1.1.1.1.1") {
+		wlStat, _ = walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1")
+	}
+	// optional wireless 60 GHz table
+	if hasOID(g, ".1.3.6.1.4.1.14988.1.1.1.8.1") {
+		wl60g, _ = walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")
+	}
+
+	// sort interfaces by index
 	indexes := make([]int, 0, len(ifIdxMap))
 	for _, pdu := range ifIdxMap {
 		switch v := pdu.Value.(type) {
@@ -171,37 +202,19 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 
 	res.Interfaces = make([]SNMPInterface, 0, len(indexes))
 
+	// iterate interfaces in order of index
 	for _, ifIndex := range indexes {
 		idx := strconv.Itoa(ifIndex)
 
-		getText := func(key string) *string {
-			if p, ok := ifTable[key+"."+idx]; ok {
-				return snmpText(p.Value)
-			}
-			return nil
-		}
-		getInt := func(key string) int {
-			if p, ok := ifTable[key+"."+idx]; ok {
-				if v := snmpInt(p.Value); v != nil {
-					return *v
-				}
-			}
-			return 0
-		}
-
-		var comment *string
-		if p, ok := ifAlias[idx]; ok {
-			comment = snmpText(p.Value)
-		}
-
+		// Basic interface info
 		ifc := SNMPInterface{
 			InterfaceIndex: ifIndex,
-			Name:           getText("2"),
-			Comment:        comment,
-			AdminStatus:    getInt("7"),
-			OperStatus:     getInt("8"),
-			InterfaceType:  getInt("3"),
-			MACAddress:     macToString(ifTable["6."+idx].Value),
+			Name:           snmpText(ifDescr[idx].Value),
+			AdminStatus:    snmpInt(ifAdmin[idx].Value),
+			OperStatus:     snmpInt(ifOper[idx].Value),
+			InterfaceType:  snmpInt(ifType[idx].Value),
+			MACAddress:     macToString(ifPhys[idx].Value),
+			Comment:        snmpText(ifAlias[idx].Value),
 		}
 
 		// Wireless AP
