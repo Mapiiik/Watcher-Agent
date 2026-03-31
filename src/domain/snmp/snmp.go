@@ -88,15 +88,6 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
 	return out, err
 }
 
-func hasOID(g *gosnmp.GoSNMP, oid string) bool {
-	pkt, err := g.Get([]string{oid})
-	if err != nil || len(pkt.Variables) == 0 {
-		return false
-	}
-	return pkt.Variables[0].Type != gosnmp.NoSuchObject &&
-		pkt.Variables[0].Type != gosnmp.NoSuchInstance
-}
-
 func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
 	g, err := snmpSession(cfg, host, community)
 	if err != nil {
@@ -171,20 +162,12 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	// interface aliases (comments)
 	ifAlias, _ := walkMap(g, ".1.3.6.1.2.1.31.1.1.1.18")
 
-	var wlAp, wlStat, wl60g map[string]gosnmp.SnmpPDU
-
 	// optional wireless AP table
-	if hasOID(g, ".1.3.6.1.4.1.14988.1.1.1.3.1") {
-		wlAp, _ = walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")
-	}
+	wlAp, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")
 	// optional wireless station table
-	if hasOID(g, ".1.3.6.1.4.1.14988.1.1.1.1.1") {
-		wlStat, _ = walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1")
-	}
+	wlStat, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1")
 	// optional wireless 60 GHz table
-	if hasOID(g, ".1.3.6.1.4.1.14988.1.1.1.8.1") {
-		wl60g, _ = walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")
-	}
+	wl60g, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")
 
 	// sort interfaces by index
 	indexes := make([]int, 0, len(ifIdxMap))
