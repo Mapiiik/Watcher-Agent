@@ -33,6 +33,9 @@ func snmpInt(v any) *int {
 		i = t
 	case int64:
 		i = int(t)
+	case uint:
+		//for Counter32, Gauge32, etc.
+		i = int(t)
 	case uint32:
 		i = int(t)
 	case uint64:
