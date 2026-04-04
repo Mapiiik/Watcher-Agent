@@ -24,7 +24,7 @@ type RouterOSProvisionResponse struct {
 
 func (c *NMSClient) GetRouterOSProvisionScript(req RouterOSProvisionRequest) (string, error) {
 	b, _ := json.Marshal(req)
-	httpReq, _ := http.NewRequest("POST", c.cfg.BaseURL+"/api/agent/provision/routeros", bytes.NewReader(b))
+	httpReq, _ := http.NewRequest("POST", c.cfg.BaseURL+"/api/agent/provision/routeros.json", bytes.NewReader(b))
 	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	httpReq.Header.Set("Content-Type", "application/json")
 
