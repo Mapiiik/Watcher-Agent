@@ -46,7 +46,8 @@ func WriteRouterOSError(w http.ResponseWriter, format string, args ...any) {
 }
 
 func escapeROS(s string) string {
-	s = strings.ReplaceAll(s, `"`, `'`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
 	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, `\/`, `/`)
 	return s
 }
