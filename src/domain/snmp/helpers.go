@@ -5,23 +5,35 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"golang.org/x/text/encoding/charmap"
 )
 
 func snmpText(v any) *string {
 	if v == nil {
 		return nil
 	}
+
+	// RouterOS SNMP OCTET STRING (CP1250)
 	if b, ok := v.([]byte); ok {
 		if len(b) == 0 {
 			return nil
 		}
-		s := string(b)
+
+		s, err := charmap.Windows1250.NewDecoder().String(string(b))
+		if err != nil || s == "" {
+			return nil
+		}
+
 		return &s
 	}
+
+	// Fallback for non-byte values
 	s := fmt.Sprintf("%v", v)
 	if s == "" || s == "<nil>" {
 		return nil
 	}
+
 	return &s
 }
 

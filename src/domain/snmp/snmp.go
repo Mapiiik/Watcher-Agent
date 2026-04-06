@@ -2,12 +2,13 @@ package snmp
 
 import (
 	"fmt"
-	"github.com/gosnmp/gosnmp"
 	"log"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/gosnmp/gosnmp"
 )
 
 type SNMPDevice struct {

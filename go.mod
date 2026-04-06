@@ -7,10 +7,8 @@ require (
 	github.com/pires/go-proxyproto v0.11.0
 	golang.org/x/crypto v0.49.0
 	golang.org/x/net v0.52.0
+	golang.org/x/text v0.35.0
 	layeh.com/radius v0.0.0-20231213012653-1006025d24f8
 )
 
-require (
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
-)
+require golang.org/x/sys v0.42.0 // indirect
