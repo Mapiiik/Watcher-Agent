@@ -59,7 +59,7 @@ func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 		Version:        gosnmp.Version2c,
 		Timeout:        cfg.Timeout,
 		Retries:        cfg.Retries,
-		MaxRepetitions: 100,
+		MaxRepetitions: 20,
 	}
 	if err := g.Connect(); err != nil {
 		return nil, err
@@ -68,25 +68,90 @@ func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 }
 
 func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
-	pkt, err := g.Get([]string{oid})
-	if err != nil {
-		return nil, err
+	const attempts = 3
+
+	for i := 0; i < attempts; i++ {
+		pkt, err := g.Get([]string{oid})
+		if err != nil {
+			if i == attempts-1 {
+				return nil, fmt.Errorf("SNMP get failed for %s: %w", oid, err)
+			}
+			continue
+		}
+
+		if len(pkt.Variables) == 0 {
+			continue
+		}
+
+		v := pkt.Variables[0]
+
+		if v.Type == gosnmp.NoSuchInstance || v.Type == gosnmp.NoSuchObject {
+			continue
+		}
+
+		txt := snmpText(v.Value)
+		if txt != nil && strings.TrimSpace(*txt) != "" {
+			return txt, nil
+		}
 	}
-	if len(pkt.Variables) == 0 {
-		return nil, nil
-	}
-	return snmpText(pkt.Variables[0].Value), nil
+
+	return nil, fmt.Errorf("SNMP get returned empty value for %s after retries", oid)
 }
 
 func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error) {
-	out := map[string]gosnmp.SnmpPDU{}
-	err := g.Walk(baseOID, func(pdu gosnmp.SnmpPDU) error {
-		// store suffix relative to baseOID
-		suffix := strings.TrimPrefix(pdu.Name, baseOID+".")
-		out[suffix] = pdu
-		return nil
-	})
-	return out, err
+	const attempts = 3
+
+	for i := 0; i < attempts; i++ {
+		out := make(map[string]gosnmp.SnmpPDU)
+
+		err := g.BulkWalk(baseOID, func(pdu gosnmp.SnmpPDU) error {
+			if pdu.Type == gosnmp.NoSuchInstance || pdu.Type == gosnmp.NoSuchObject {
+				return nil
+			}
+			suffix := strings.TrimPrefix(pdu.Name, baseOID+".")
+			out[suffix] = pdu
+			return nil
+		})
+
+		if err == nil && len(out) > 0 {
+			return out, nil
+		}
+
+		if i == attempts-1 {
+			return out, fmt.Errorf("SNMP walk failed for %s: %w", baseOID, err)
+		}
+	}
+
+	return nil, fmt.Errorf("SNMP walk failed for %s", baseOID)
+}
+
+func safePDU(m map[string]gosnmp.SnmpPDU, key string) (gosnmp.SnmpPDU, bool) {
+	p, ok := m[key]
+	if !ok || p.Value == nil {
+		return gosnmp.SnmpPDU{}, false
+	}
+	return p, true
+}
+
+func getText(m map[string]gosnmp.SnmpPDU, key string) *string {
+	if p, ok := safePDU(m, key); ok {
+		return snmpText(p.Value)
+	}
+	return nil
+}
+
+func getInt(m map[string]gosnmp.SnmpPDU, key string) *int {
+	if p, ok := safePDU(m, key); ok {
+		return snmpInt(p.Value)
+	}
+	return nil
+}
+
+func getMAC(m map[string]gosnmp.SnmpPDU, key string) *string {
+	if p, ok := safePDU(m, key); ok {
+		return macToString(p.Value)
+	}
+	return nil
 }
 
 func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
@@ -193,39 +258,40 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 		// Basic interface info
 		ifc := SNMPInterface{
 			InterfaceIndex: ifIndex,
-			Name:           snmpText(ifDescr[idx].Value),
-			AdminStatus:    snmpInt(ifAdmin[idx].Value),
-			OperStatus:     snmpInt(ifOper[idx].Value),
-			InterfaceType:  snmpInt(ifType[idx].Value),
-			MACAddress:     macToString(ifPhys[idx].Value),
-			Comment:        snmpText(ifAlias[idx].Value),
+			Name:           getText(ifDescr, idx),
+			AdminStatus:    getInt(ifAdmin, idx),
+			OperStatus:     getInt(ifOper, idx),
+			InterfaceType:  getInt(ifType, idx),
+			MACAddress:     getMAC(ifPhys, idx),
+			Comment:        getText(ifAlias, idx),
 		}
 
 		// Wireless AP
-		if p, ok := wlAp["4."+idx]; ok && p.Value != nil {
-			ifc.SSID = snmpText(p.Value)
-			ifc.BSSID = macToString(wlAp["5."+idx].Value)
-			ifc.Band = snmpText(wlAp["8."+idx].Value)
-			ifc.Frequency = snmpInt(wlAp["7."+idx].Value)
-			ifc.NoiseFloor = snmpInt(wlAp["9."+idx].Value)
-			ifc.ClientCount = snmpInt(wlAp["6."+idx].Value)
-			ifc.OverallTxCCQ = snmpInt(wlAp["10."+idx].Value)
+		if ssid := getText(wlAp, "4."+idx); ssid != nil {
+			ifc.SSID = ssid
+			ifc.BSSID = getMAC(wlAp, "5."+idx)
+			ifc.Band = getText(wlAp, "8."+idx)
+			ifc.Frequency = getInt(wlAp, "7."+idx)
+			ifc.NoiseFloor = getInt(wlAp, "9."+idx)
+			ifc.ClientCount = getInt(wlAp, "6."+idx)
+			ifc.OverallTxCCQ = getInt(wlAp, "10."+idx)
 
 			// Wireless station
-		} else if p, ok := wlStat["5."+idx]; ok && p.Value != nil {
-			ifc.SSID = snmpText(p.Value)
-			ifc.BSSID = macToString(wlStat["6."+idx].Value)
-			ifc.Band = snmpText(wlStat["8."+idx].Value)
-			ifc.Frequency = snmpInt(wlStat["7."+idx].Value)
+		} else if ssid := getText(wlStat, "5."+idx); ssid != nil {
+			ifc.SSID = ssid
+			ifc.BSSID = getMAC(wlStat, "6."+idx)
+			ifc.Band = getText(wlStat, "8."+idx)
+			ifc.Frequency = getInt(wlStat, "7."+idx)
 
 			// Wireless 60 GHz
-		} else if p, ok := wl60g["3."+idx]; ok && p.Value != nil {
-			ifc.SSID = snmpText(p.Value)
-			// BSSID only for stations (value 1)
-			if v := snmpInt(wl60g["2."+idx].Value); v != nil && *v == 1 {
-				ifc.BSSID = macToString(wl60g["5."+idx].Value)
+		} else if ssid := getText(wl60g, "3."+idx); ssid != nil {
+			ifc.SSID = ssid
+
+			if mode := getInt(wl60g, "2."+idx); mode != nil && *mode == 1 {
+				ifc.BSSID = getMAC(wl60g, "5."+idx)
 			}
-			ifc.Frequency = snmpInt(wl60g["6."+idx].Value)
+
+			ifc.Frequency = getInt(wl60g, "6."+idx)
 		}
 
 		res.Interfaces = append(res.Interfaces, ifc)
