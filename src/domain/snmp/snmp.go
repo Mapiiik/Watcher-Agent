@@ -1,6 +1,7 @@
 package snmp
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -10,6 +11,13 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 )
+
+// errSNMPEmpty is returned by snmpGetText when an OID is absent or its value
+// is empty after all retries. It is distinct from transport/protocol errors so
+// callers can decide whether to treat the absence as nil or as a failure.
+var errSNMPEmpty = errors.New("snmp value empty")
+
+const snmpAttempts = 3
 
 type SNMPDevice struct {
 	Serial            string  `json:"serial_number"`
@@ -68,13 +76,11 @@ func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 }
 
 func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
-	const attempts = 3
-
-	for i := 0; i < attempts; i++ {
+	for i := 0; i < snmpAttempts; i++ {
 		pkt, err := g.Get([]string{oid})
 		if err != nil {
-			if i == attempts-1 {
-				return nil, fmt.Errorf("SNMP get failed for %s: %w", oid, err)
+			if i == snmpAttempts-1 {
+				return nil, fmt.Errorf("SNMP get failed after %d attempts for %s: %w", snmpAttempts, oid, err)
 			}
 			continue
 		}
@@ -95,13 +101,11 @@ func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("SNMP get returned empty value for %s after retries", oid)
+	return nil, errSNMPEmpty
 }
 
 func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error) {
-	const attempts = 3
-
-	for i := 0; i < attempts; i++ {
+	for i := 0; i < snmpAttempts; i++ {
 		out := make(map[string]gosnmp.SnmpPDU)
 
 		err := g.BulkWalk(baseOID, func(pdu gosnmp.SnmpPDU) error {
@@ -117,8 +121,11 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
 			return out, nil
 		}
 
-		if i == attempts-1 {
-			return out, fmt.Errorf("SNMP walk failed for %s: %w", baseOID, err)
+		if i == snmpAttempts-1 {
+			if err != nil {
+				return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, err)
+			}
+			return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: empty response", snmpAttempts, baseOID)
 		}
 	}
 
@@ -167,11 +174,9 @@ func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
 	}()
 
 	serial, err := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.3.0")
-	if err != nil {
-		return "", err
-	}
-	if serial == nil || strings.TrimSpace(*serial) == "" {
-		return "", fmt.Errorf("serial not found")
+	if err != nil || serial == nil {
+		log.Printf("[%s] %v", host, err)
+		return "", fmt.Errorf("serial number not found: %w", err)
 	}
 
 	return *serial, nil
@@ -191,17 +196,26 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 
 	serial, err := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.3.0")
 	if err != nil || serial == nil {
-		if err == nil {
-			err = fmt.Errorf("serial not found")
-		}
-		return SNMPReadResult{}, err
+		log.Printf("[%s] %v", host, err)
+		return SNMPReadResult{}, fmt.Errorf("serial number not found: %w", err)
 	}
 
-	name, _ := snmpGetText(g, ".1.3.6.1.2.1.1.5.0")
-	sysDescr, _ := snmpGetText(g, ".1.3.6.1.2.1.1.1.0")
-	board, _ := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.8.0")
-	sw, _ := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.4.4.0")
-	fw, _ := snmpGetText(g, ".1.3.6.1.4.1.14988.1.1.7.4.0")
+	// optionalGet fetches an OID that may legitimately be absent on some devices.
+	// errSNMPEmpty (OID not found / RouterOS null) silently becomes nil.
+	// Real transport errors are logged so they are visible but do not fail the read.
+	optionalGet := func(oid string) *string {
+		v, err := snmpGetText(g, oid)
+		if err != nil && !errors.Is(err, errSNMPEmpty) {
+			log.Printf("[%s] %v", host, err)
+		}
+		return v
+	}
+
+	name := optionalGet(".1.3.6.1.2.1.1.5.0")
+	sysDescr := optionalGet(".1.3.6.1.2.1.1.1.0")
+	board := optionalGet(".1.3.6.1.4.1.14988.1.1.7.8.0")
+	sw := optionalGet(".1.3.6.1.4.1.14988.1.1.4.4.0")
+	fw := optionalGet(".1.3.6.1.4.1.14988.1.1.7.4.0")
 
 	res := SNMPReadResult{
 		Device: SNMPDevice{
@@ -215,25 +229,44 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 		},
 	}
 
+	// requireWalk is used for standard MIB tables that must be present on any
+	// RouterOS device. The first failure short-circuits remaining calls and the
+	// accumulated error is checked once before processing continues.
+	var walkErr error
+	requireWalk := func(oid string) map[string]gosnmp.SnmpPDU {
+		if walkErr != nil {
+			return nil
+		}
+		m, err := walkMap(g, oid)
+		if err != nil {
+			log.Printf("[%s] %v", host, err)
+			walkErr = err
+			return nil
+		}
+		return m
+	}
+
 	// INTERFACES
+	walkErr = nil
 
-	// interface indexes
-	ifIdxMap, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.1") // suffix is index
-	// required for basic info (ifTable)
-	ifDescr, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.2")
-	ifAdmin, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.7")
-	ifOper, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.8")
-	ifType, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.3")
-	ifPhys, _ := walkMap(g, ".1.3.6.1.2.1.2.2.1.6")
-	// interface aliases (comments)
-	ifAlias, _ := walkMap(g, ".1.3.6.1.2.1.31.1.1.1.18")
+	ifIdxMap := requireWalk(".1.3.6.1.2.1.2.2.1.1") // suffix is index
+	ifDescr := requireWalk(".1.3.6.1.2.1.2.2.1.2")
+	ifAdmin := requireWalk(".1.3.6.1.2.1.2.2.1.7")
+	ifOper := requireWalk(".1.3.6.1.2.1.2.2.1.8")
+	ifType := requireWalk(".1.3.6.1.2.1.2.2.1.3")
+	ifPhys := requireWalk(".1.3.6.1.2.1.2.2.1.6")
+	ifAlias := requireWalk(".1.3.6.1.2.1.31.1.1.1.18")
 
-	// optional wireless AP table
-	wlAp, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")
-	// optional wireless station table
-	wlStat, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1")
-	// optional wireless 60 GHz table
-	wl60g, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")
+	if walkErr != nil {
+		return SNMPReadResult{}, walkErr
+	}
+
+	// Wireless tables are optional — errors are silently ignored because these
+	// OIDs do not exist on non-wireless devices and gosnmp reports empty walk
+	// as an error, which would be a false positive on every wired device.
+	wlAp, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")   // wireless AP table
+	wlStat, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1") // wireless station table
+	wl60g, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")  // wireless 60 GHz table
 
 	// sort interfaces by index
 	indexes := make([]int, 0, len(ifIdxMap))
@@ -298,9 +331,15 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	}
 
 	// IP ADDRESSES
-	ipAddrs, _ := walkMap(g, ".1.3.6.1.2.1.4.20.1.1")
-	ipMasks, _ := walkMap(g, ".1.3.6.1.2.1.4.20.1.3")
-	ipIfIdx, _ := walkMap(g, ".1.3.6.1.2.1.4.20.1.2")
+	walkErr = nil
+
+	ipAddrs := requireWalk(".1.3.6.1.2.1.4.20.1.1")
+	ipMasks := requireWalk(".1.3.6.1.2.1.4.20.1.3")
+	ipIfIdx := requireWalk(".1.3.6.1.2.1.4.20.1.2")
+
+	if walkErr != nil {
+		return SNMPReadResult{}, walkErr
+	}
 
 	for k, pdu := range ipAddrs {
 		ipStr := snmpText(pdu.Value)

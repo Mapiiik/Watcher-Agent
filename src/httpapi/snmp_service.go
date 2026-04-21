@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"watcher-agent/src/domain/snmp"
@@ -49,7 +50,7 @@ func (s *SNMPService) HandleRouterOSRead(w http.ResponseWriter, r *http.Request)
 			w,
 			http.StatusBadGateway,
 			"snmp_read_failed",
-			"Failed to read data from the SNMP device.",
+			fmt.Sprintf("Failed to read data from the SNMP device (%s).", err),
 		)
 		return
 	}
