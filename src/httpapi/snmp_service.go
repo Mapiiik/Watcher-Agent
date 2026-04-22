@@ -50,7 +50,7 @@ func (s *SNMPService) HandleRouterOSRead(w http.ResponseWriter, r *http.Request)
 			w,
 			http.StatusBadGateway,
 			"snmp_read_failed",
-			fmt.Sprintf("Failed to read data from the SNMP device (%s).", err),
+			fmt.Sprintf("Failed to read data from the SNMP device: %s", err),
 		)
 		return
 	}
