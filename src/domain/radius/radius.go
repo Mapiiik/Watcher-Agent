@@ -120,13 +120,17 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 			out.Result = fmt.Sprintf("Unsupported reply (code %d)", resp.Code)
 		}
 
-		// Extract all Error-Cause attributes (RFC 5176)
-		vals := resp.Get(attrErrorCause)
-		if len(vals) == 4 {
-			code := int(vals[0])<<24 |
-				int(vals[1])<<16 |
-				int(vals[2])<<8 |
-				int(vals[3])
+		// Extract all Error-Cause attributes (RFC 5176). A reply may carry more
+		// than one, so we iterate every attribute instead of Get(), which only
+		// returns the first match. Each value is a 4-octet integer.
+		for _, avp := range resp.Attributes {
+			if avp.Type != attrErrorCause || len(avp.Attribute) != 4 {
+				continue
+			}
+			code := int(avp.Attribute[0])<<24 |
+				int(avp.Attribute[1])<<16 |
+				int(avp.Attribute[2])<<8 |
+				int(avp.Attribute[3])
 			out.ErrorCauses = append(out.ErrorCauses, code)
 		}
 
