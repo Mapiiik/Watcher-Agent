@@ -1,2 +1,9 @@
+# Configuration
 .env
-.compose.yaml
+
+# Docker Compose
+docker-compose.yml
+compose.yaml
+
+# Visual Studio Code
+.vscode
