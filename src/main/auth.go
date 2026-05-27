@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"net"
 	"net/http"
 	"strings"
@@ -8,10 +9,17 @@ import (
 	"watcher-agent/src/httphelpers"
 )
 
+// secureEqual compares two strings in constant time to avoid leaking how many
+// leading characters matched via response timing. Length is not secret here.
+func secureEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
 func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := strings.TrimSpace(r.Header.Get("Authorization"))
-		if !strings.HasPrefix(h, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")) != appCfg.APIToken {
+		token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		if !strings.HasPrefix(h, "Bearer ") || !secureEqual(token, appCfg.APIToken) {
 			httphelpers.WriteError(
 				w,
 				http.StatusUnauthorized,
@@ -56,7 +64,7 @@ func routerOSGuard(appCfg AppConfig, next http.Handler) http.Handler {
 		}
 
 		if appCfg.RouterOSQueryToken != "" {
-			if strings.TrimSpace(r.URL.Query().Get("token")) != appCfg.RouterOSQueryToken {
+			if !secureEqual(strings.TrimSpace(r.URL.Query().Get("token")), appCfg.RouterOSQueryToken) {
 				httphelpers.WriteError(
 					w,
 					http.StatusForbidden,
