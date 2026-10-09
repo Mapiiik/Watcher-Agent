@@ -17,6 +17,16 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// TLS 1.2 suites with ECDHE and authenticated encryption only; TLS 1.3 suites are all of that kind.
+var tls12CipherSuites = []uint16{
+	tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+	tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+	tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+}
+
 func buildHTTPServer(cfg AppConfig, handler http.Handler) (*http.Server, error) {
 	tlsCfg, err := buildTLSConfig(cfg)
 	if err != nil {
@@ -49,6 +59,7 @@ func buildSelfSignedTLS() (*tls.Config, error) {
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
+		CipherSuites: tls12CipherSuites,
 	}, nil
 }
 
@@ -61,6 +72,7 @@ func buildACMETLS(cfg AppConfig) (*tls.Config, error) {
 
 	tlsCfg := m.TLSConfig()
 	tlsCfg.MinVersion = tls.VersionTLS12
+	tlsCfg.CipherSuites = tls12CipherSuites
 
 	return tlsCfg, nil
 }
