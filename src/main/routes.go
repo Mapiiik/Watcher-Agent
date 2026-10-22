@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"strings"
 
 	"watcher-agent/src/domain/radius"
 	"watcher-agent/src/domain/snmp"
@@ -72,9 +73,8 @@ func newHandler(appCfg AppConfig, radiusCfg radius.Config, snmpCfg snmp.Config, 
 // httpsRedirect sends plain HTTP requests to the same host and path on the HTTPS port.
 func httpsRedirect(listenHTTPS string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-
-		// Remove port from Host header if present
+		// Remove the port from the Host header, and the brackets of an IPv6 address sent without one
+		host := strings.TrimSuffix(strings.TrimPrefix(r.Host, "["), "]")
 		if h, _, err := net.SplitHostPort(r.Host); err == nil {
 			host = h
 		}

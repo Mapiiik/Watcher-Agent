@@ -102,6 +102,7 @@ func TestHTTPSRedirect(t *testing.T) {
 		{"0.0.0.0:443", "agent.example.net:80", "/", "https://agent.example.net:443/"},
 		{":8443", "192.0.2.10:8080", "/provision/routeros/router/HE408", "https://192.0.2.10:8443/provision/routeros/router/HE408"},
 		{"[::]:443", "[2001:db8::1]:80", "/", "https://[2001:db8::1]:443/"},
+		{"[::]:443", "[2001:db8::1]", "/", "https://[2001:db8::1]:443/"},
 	}
 
 	for _, c := range cases {
