@@ -1,6 +1,6 @@
 module watcher-agent
 
-go 1.26.1
+go 1.27.3
 
 require (
 	github.com/gosnmp/gosnmp v1.43.2
