@@ -25,8 +25,8 @@ func WriteError(w http.ResponseWriter, status int, code, msg string) {
 	})
 }
 
-// WriteRouterOSError answers a RouterOS device with a script that only logs the error. Quotes in string arguments
-// are escaped and newlines replaced, write errors are only logged.
+// WriteRouterOSError answers a RouterOS device with a script that only logs the error. String arguments are escaped,
+// so text from the NMS or the URL can neither end the string nor run a command. Write errors are only logged.
 func WriteRouterOSError(w http.ResponseWriter, format string, args ...any) {
 	w.Header().Set("Content-Type", "text/plain")
 
@@ -48,9 +48,10 @@ func WriteRouterOSError(w http.ResponseWriter, format string, args ...any) {
 	}
 }
 
+// In a RouterOS string "\" escapes, "$" expands a variable or runs $[...] and "?" asks for help.
+var rosEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, `?`, `\?`, "\r", " ", "\n", " ")
+
+// escapeROS makes s safe inside a double-quoted RouterOS string. "\/" from JSON in NMS answers becomes "/" first.
 func escapeROS(s string) string {
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, `\/`, `/`)
-	return s
+	return rosEscaper.Replace(strings.ReplaceAll(s, `\/`, `/`))
 }

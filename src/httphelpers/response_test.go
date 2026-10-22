@@ -59,3 +59,22 @@ func TestWriteRouterOSErrorEscapesArguments(t *testing.T) {
 		t.Errorf("body = %q, want %q", rec.Body.String(), want)
 	}
 }
+
+// The device imports the answer as a script, so nothing in the arguments may run there.
+func TestWriteRouterOSErrorEscapesScriptSyntax(t *testing.T) {
+	for in, want := range map[string]string{
+		`x$[/system reset-configuration]`: `x\$[/system reset-configuration]`,
+		`$serial`:                         `\$serial`,
+		`a\"; /user add name=x`:           `a\\\"; /user add name=x`,
+		`what?`:                           `what\?`,
+		"one\r\ntwo":                      "one  two",
+	} {
+		rec := httptest.NewRecorder()
+		WriteRouterOSError(rec, "Serial mismatch (got %s)", in)
+
+		body := ":log error \"Watcher Agent: Serial mismatch (got " + want + ")\"\n"
+		if rec.Body.String() != body {
+			t.Errorf("%q: body = %q, want %q", in, rec.Body.String(), body)
+		}
+	}
+}
