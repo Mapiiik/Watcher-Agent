@@ -1,3 +1,4 @@
+// Package nms calls the central NMS API.
 package nms
 
 import "time"

@@ -37,6 +37,7 @@ func NewPingService() *PingService {
 	return &PingService{}
 }
 
+// HandlePing pings an address or a name (IPv6 preferred) and reports the loss and round-trip times.
 func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 	var req PingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -27,8 +27,10 @@ func NewProvisionService(
 	}
 }
 
+// HandleRouterOS answers GET /provision/routeros/{deviceType}/{serial} from the device itself: it checks the
+// serial over SNMP at the caller's address, sends the full read to the NMS and returns the NMS script. Every
+// failure is answered with a script that only logs it.
 func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request) {
-	// URL: /provision/routeros/{deviceType}/{serial}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 4 {
 		httphelpers.WriteRouterOSError(

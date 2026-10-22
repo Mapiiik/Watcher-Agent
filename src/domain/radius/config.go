@@ -1,3 +1,4 @@
+// Package radius disconnects sessions on a NAS with RADIUS Disconnect-Request (RFC 5176).
 package radius
 
 import (

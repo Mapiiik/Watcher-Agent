@@ -41,6 +41,8 @@ type RadiusDisconnectOutput struct {
 	ErrorCauses []int  `json:"error_causes,omitempty"`
 }
 
+// Disconnect sends a Disconnect-Request and reports the NAS's answer. No answer within the retries is a result
+// (Timeout), an error means a local failure such as an unresolvable NAS.
 func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, error) {
 	port := int(cfg.Port)
 	if in.Port > 0 {

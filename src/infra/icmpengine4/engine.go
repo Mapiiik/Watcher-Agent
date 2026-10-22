@@ -1,3 +1,4 @@
+// Package icmpengine4 pings IPv4 hosts over a shared raw socket, which needs CAP_NET_RAW.
 package icmpengine4
 
 import (
@@ -11,6 +12,8 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+// Engine shares one raw ICMP socket between concurrent pings: the first Acquire opens it, the last Release
+// closes it, and replies find their ping by the echo ID.
 type Engine struct {
 	mu       sync.Mutex
 	conn     *icmp.PacketConn
@@ -25,6 +28,7 @@ var (
 	globalID   uint32
 )
 
+// Get returns the engine of the process.
 func Get() *Engine {
 	engineOnce.Do(func() {
 		engine = &Engine{
@@ -68,6 +72,7 @@ func (e *Engine) nextID() int {
 	return int(atomic.AddUint32(&globalID, 1) & 0xffff)
 }
 
+// Ping sends one echo request and waits for its reply, ok is false without an error when none comes in time.
 func (e *Engine) Ping(ip net.IP, seq int, timeout time.Duration) (time.Duration, bool, error) {
 	id := e.nextID()
 

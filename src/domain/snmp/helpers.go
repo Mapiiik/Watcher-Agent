@@ -9,6 +9,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 )
 
+// snmpText decodes a RouterOS text value (CP1250), nil when empty.
 func snmpText(v any) *string {
 	if v == nil {
 		return nil
@@ -46,7 +47,7 @@ func snmpInt(v any) *int {
 	case int64:
 		i = int(t)
 	case uint:
-		//for Counter32, Gauge32, etc.
+		// Counter32, Gauge32 and the like
 		i = int(t)
 	case uint32:
 		i = int(t)
@@ -58,6 +59,7 @@ func snmpInt(v any) *int {
 	return &i
 }
 
+// macToString formats a MAC address as aa:bb:cc:dd:ee:ff, nil when shorter than 6 bytes.
 func macToString(v any) *string {
 	b, ok := v.([]byte)
 	if !ok || len(b) == 0 {
@@ -78,6 +80,7 @@ func macToString(v any) *string {
 	return &s
 }
 
+// maskToCIDR turns a dotted IPv4 mask into a prefix length, -1 when it is not a valid mask.
 func maskToCIDR(mask string) int {
 	ip := net.ParseIP(mask)
 	if ip == nil {

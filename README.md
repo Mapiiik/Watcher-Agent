@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Mapiiik/Watcher-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Mapiiik/Watcher-Agent/actions/workflows/ci.yml)
 [![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3%2B-blue.svg)](LICENSE.md)
-[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](go.mod)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8.svg)](go.mod)
 [![Image](https://img.shields.io/badge/ghcr.io-mapiiik%2Fwatcher--agent-2496ED.svg)](https://github.com/Mapiiik/Watcher-Agent/pkgs/container/watcher-agent)
 
 A small, self-contained HTTP agent that runs **close to the network** (a Docker host
@@ -248,7 +248,9 @@ docker compose -f compose.dev.yaml up --build   # live reload via `go run`
 ```
 
 CI (GitHub Actions) runs `go mod tidy` verification, `go vet`, golangci-lint and tests
-on every push/PR, then builds and pushes the multi-arch image to GHCR on `main`.
+on every push/PR, then builds and pushes the multi-arch image to GHCR on `main`. A nightly
+run rebuilds it when a new Go patch release or Alpine image is out. Go cross-compiles and
+nothing runs on the target platform, so the arm64 image needs no emulation.
 
 ### Project layout
 
@@ -265,6 +267,8 @@ src/
     icmpengine6/ shared IPv6 ICMP socket + ping engine
   integration/
     nms/         client for the central NMS provisioning API
+  testutil/
+    snmpagent/   minimal SNMP v2c agent the tests read from
 ```
 
 ---

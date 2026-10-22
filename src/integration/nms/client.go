@@ -4,6 +4,7 @@ import (
 	"net/http"
 )
 
+// NMSClient calls the NMS API with the agent's token.
 type NMSClient struct {
 	cfg Config
 	hc  *http.Client

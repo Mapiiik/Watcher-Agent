@@ -13,27 +13,28 @@ import (
 	"watcher-agent/src/integration/nms"
 )
 
+// AppConfig is the agent's configuration from the AGENT_* environment variables.
 type AppConfig struct {
 	ListenHttp       string
 	ListenHttps      string
 	UseProxyProtocol bool
 
-	// for ACME TLS, if empty - self-signed cert will be used
+	// Hostname for the ACME certificate, empty for a self-signed one
 	Hostname string
-	// directory for ACME cert storage (default: "./certs")
+	// Directory for the ACME certificates
 	CertDir string
 
-	// Auth for API calls (ping/radius/snmp) from Watcher/NMS/CRM
+	// Bearer token for the API calls (status, ping, RADIUS, SNMP) from Watcher, NMS and CRM
 	APIToken string
 
-	// Agent identificator
+	// Agent identifier, sent to the NMS and shown in the answers
 	AgentID string
 
-	// RouterOS provisioning access control (MVP)
+	// Who may call RouterOS provisioning: source addresses and an optional ?token=
 	RouterOSAllowCIDRs []string
-	RouterOSQueryToken string // optional
+	RouterOSQueryToken string
 
-	// Device types (agent-side lookup for SNMP community)
+	// Device types of the provisioning URL with the SNMP community of each
 	DeviceTypes map[string]httpapi.DeviceTypeConfig
 }
 
@@ -65,6 +66,8 @@ func envIntDefault(key string, def int) int {
 	return i
 }
 
+// LoadAppConfig panics without AGENT_API_TOKEN or with a broken AGENT_DEVICE_TYPES_JSON, so the agent never
+// starts half configured.
 func LoadAppConfig() AppConfig {
 	deviceTypes := map[string]httpapi.DeviceTypeConfig{}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_DEVICE_TYPES_JSON")); raw != "" {

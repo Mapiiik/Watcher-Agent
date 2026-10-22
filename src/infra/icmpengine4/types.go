@@ -4,14 +4,14 @@ import (
 	"net"
 )
 
-// reply - internal representation of ICMP EchoReply
+// reply is an echo reply as the read loop hands it over
 type reply struct {
 	from net.IP
 	id   int
 	seq  int
 }
 
-// waiter - represents a waiting ping request
+// waiter is a ping waiting for the reply with its ID
 type waiter struct {
 	ch chan reply
 }

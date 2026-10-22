@@ -23,6 +23,7 @@ type RouterOSProvisionResponse struct {
 	Script string `json:"script"`
 }
 
+// GetRouterOSProvisionScript sends the device's SNMP read to the NMS and returns the RouterOS script for it.
 func (c *NMSClient) GetRouterOSProvisionScript(req RouterOSProvisionRequest) (string, error) {
 	b, _ := json.Marshal(req)
 	httpReq, _ := http.NewRequest("POST", c.cfg.BaseURL+"/api/agent/provision/routeros.json", bytes.NewReader(b))

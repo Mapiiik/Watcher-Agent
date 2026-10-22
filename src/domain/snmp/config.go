@@ -1,3 +1,4 @@
+// Package snmp reads RouterOS devices over SNMP v2c.
 package snmp
 
 import (

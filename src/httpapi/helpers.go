@@ -1,3 +1,4 @@
+// Package httpapi holds the HTTP handlers of the agent's API and of RouterOS provisioning.
 package httpapi
 
 import (

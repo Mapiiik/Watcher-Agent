@@ -6,15 +6,14 @@ import (
 	"sync/atomic"
 )
 
-// Atomic flag to indicate server is draining (rejecting new requests)
+// draining is set on shutdown, from then on new requests get 503
 var draining atomic.Bool
 
-// Tracks active requests to allow graceful drainage
+// activeRequests counts the requests in progress, shutdown waits for them
 var activeRequests sync.WaitGroup
 
 func drainMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Track active request
 		activeRequests.Add(1)
 		defer activeRequests.Done()
 

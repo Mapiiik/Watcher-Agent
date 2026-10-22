@@ -40,6 +40,7 @@ func buildHTTPServer(cfg AppConfig, handler http.Handler) (*http.Server, error) 
 	}, nil
 }
 
+// buildTLSConfig uses ACME when AGENT_HOSTNAME is set, otherwise a self-signed certificate made at every start.
 func buildTLSConfig(cfg AppConfig) (*tls.Config, error) {
 	if cfg.Hostname == "" {
 		log.Println("TLS: using self-signed certificate")
@@ -103,7 +104,7 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 
-		// Accept both IP and DNS
+		// Valid for 127.0.0.1 and localhost
 		IPAddresses: []net.IP{
 			net.ParseIP("127.0.0.1"),
 		},

@@ -19,6 +19,7 @@ var errSNMPEmpty = errors.New("snmp value empty")
 
 const snmpAttempts = 3
 
+// SNMPDevice is the system part of a read, pointer fields are nil when the device lacks the value.
 type SNMPDevice struct {
 	Serial            string  `json:"serial_number"`
 	IP                string  `json:"ip_address"`
@@ -29,7 +30,8 @@ type SNMPDevice struct {
 	FirmwareVersion   *string `json:"firmware_version"`
 }
 
-// Pointer fields are used to preserve null semantics when SNMP values are missing
+// SNMPInterface is one row of the interface table, with the wireless values on wireless interfaces. Pointer
+// fields are nil (null in JSON) when the device lacks the value.
 type SNMPInterface struct {
 	InterfaceIndex int     `json:"interface_index"`
 	Name           *string `json:"name"`
@@ -161,6 +163,7 @@ func getMAC(m map[string]gosnmp.SnmpPDU, key string) *string {
 	return nil
 }
 
+// ReadRouterOSSerial reads only the serial number, the check before a full read in provisioning.
 func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
 	g, err := snmpSession(cfg, host, community)
 	if err != nil {
@@ -182,6 +185,8 @@ func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
 	return *serial, nil
 }
 
+// ReadRouterOS reads the system values, the interfaces with their wireless data and the IPv4 addresses. It
+// fails without the serial or a standard table, values a device may lack stay nil.
 func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	g, err := snmpSession(cfg, host, community)
 	if err != nil {
@@ -246,7 +251,7 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 		return m
 	}
 
-	// INTERFACES
+	// Interfaces
 	walkErr = nil
 
 	ifIdxMap := requireWalk(".1.3.6.1.2.1.2.2.1.1") // suffix is index
@@ -284,7 +289,6 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 
 	res.Interfaces = make([]SNMPInterface, 0, len(indexes))
 
-	// iterate interfaces in order of index
 	for _, ifIndex := range indexes {
 		idx := strconv.Itoa(ifIndex)
 
@@ -330,7 +334,7 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 		res.Interfaces = append(res.Interfaces, ifc)
 	}
 
-	// IP ADDRESSES
+	// IPv4 addresses (ipAddrTable has no IPv6)
 	walkErr = nil
 
 	ipAddrs := requireWalk(".1.3.6.1.2.1.4.20.1.1")

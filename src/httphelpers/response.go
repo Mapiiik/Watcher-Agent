@@ -1,3 +1,4 @@
+// Package httphelpers writes the agent's JSON answers and the RouterOS error scripts.
 package httphelpers
 
 import (
@@ -8,11 +9,13 @@ import (
 	"strings"
 )
 
+// WriteJSON writes v as a JSON answer with status 200.
 func WriteJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// WriteError writes the JSON error {"error": code, "message": msg} with the given status.
 func WriteError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -22,8 +25,8 @@ func WriteError(w http.ResponseWriter, status int, code, msg string) {
 	})
 }
 
-// WriteRouterOSError writes a RouterOS-compatible error response.
-// Write errors are logged but not propagated.
+// WriteRouterOSError answers a RouterOS device with a script that only logs the error. Quotes in string arguments
+// are escaped and newlines replaced, write errors are only logged.
 func WriteRouterOSError(w http.ResponseWriter, format string, args ...any) {
 	w.Header().Set("Content-Type", "text/plain")
 

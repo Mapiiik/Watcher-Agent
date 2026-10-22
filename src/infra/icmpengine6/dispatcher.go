@@ -7,6 +7,7 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
+// readLoop hands every echo reply to the ping waiting for its ID and drops the rest.
 func (e *Engine) readLoop() {
 	buf := make([]byte, 1500)
 
