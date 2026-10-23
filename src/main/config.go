@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"watcher-agent/src/domain/radius"
+	"watcher-agent/src/domain/routeros"
 	"watcher-agent/src/domain/snmp"
 	"watcher-agent/src/httpapi"
 	"watcher-agent/src/integration/nms"
@@ -24,7 +25,7 @@ type AppConfig struct {
 	// Directory for the ACME certificates
 	CertDir string
 
-	// Bearer token for the API calls (status, ping, RADIUS, SNMP) from Watcher, NMS and CRM
+	// Bearer token for the API calls (status, ping, RADIUS, SNMP, RouterOS API) from Watcher, NMS and CRM
 	APIToken string
 
 	// Agent identifier, sent to the NMS and shown in the answers
@@ -107,6 +108,25 @@ func LoadRadiusConfig() radius.Config {
 		Port:    uint16(envIntDefault("AGENT_RADIUS_PORT", 1700)),
 		Timeout: time.Duration(envIntDefault("AGENT_RADIUS_TIMEOUT_MS", 1500)) * time.Millisecond,
 		Retries: envIntDefault("AGENT_RADIUS_RETRIES", 1),
+	}
+}
+
+// LoadRouterOSAPIConfig panics with a fingerprint that is not one, so that verification never silently goes off.
+func LoadRouterOSAPIConfig() routeros.Config {
+	fingerprint, err := routeros.ParseFingerprint(os.Getenv("AGENT_ROUTEROS_API_CA_FINGERPRINT"))
+	if err != nil {
+		panic("bad AGENT_ROUTEROS_API_CA_FINGERPRINT: " + err.Error())
+	}
+
+	return routeros.Config{
+		Username: strings.TrimSpace(os.Getenv("AGENT_ROUTEROS_API_USERNAME")),
+		// Not trimmed, a password may end with a space
+		Password:      os.Getenv("AGENT_ROUTEROS_API_PASSWORD"),
+		PlainFallback: envDefault("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "false") == "true",
+		CAFingerprint: fingerprint,
+		Timeout:       time.Duration(envIntDefault("AGENT_ROUTEROS_API_TIMEOUT_MS", 5000)) * time.Millisecond,
+		TLSPort:       8729,
+		PlainPort:     8728,
 	}
 }
 

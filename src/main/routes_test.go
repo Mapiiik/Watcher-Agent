@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"watcher-agent/src/domain/radius"
+	"watcher-agent/src/domain/routeros"
 	"watcher-agent/src/domain/snmp"
 	"watcher-agent/src/integration/nms"
 )
@@ -18,7 +19,15 @@ func handler() http.Handler {
 		radius.Config{Port: 3799, Timeout: time.Second},
 		snmp.Config{Port: 161, Timeout: 50 * time.Millisecond},
 		nms.Config{BaseURL: "http://127.0.0.1:1", Token: "nms-token", Timeout: time.Second},
+		routeros.Config{Username: "watcher-agent", Timeout: time.Second},
 	)
+}
+
+// apiPaths are the POST endpoints behind the token
+var apiPaths = []string{
+	"/api/ping", "/api/radius/disconnect", "/api/snmp/read/routeros",
+	"/api/routeros/address-list/sync", "/api/routeros/address-list/add", "/api/routeros/address-list/remove",
+	"/api/routeros/access-list/remove",
 }
 
 func serve(h http.Handler, method, path, token, remote string) *httptest.ResponseRecorder {
@@ -37,7 +46,7 @@ func serve(h http.Handler, method, path, token, remote string) *httptest.Respons
 func TestEndpointsNeedTheToken(t *testing.T) {
 	h := handler()
 
-	for _, path := range []string{"/api/status", "/api/ping", "/api/radius/disconnect", "/api/snmp/read/routeros"} {
+	for _, path := range append([]string{"/api/status"}, apiPaths...) {
 		if rec := serve(h, "POST", path, "", ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s without a token: %d", path, rec.Code)
 		}
@@ -50,7 +59,7 @@ func TestEndpointsNeedTheToken(t *testing.T) {
 		t.Errorf("/api/status with the token: %d", rec.Code)
 	}
 	// The body "{" is not JSON, so reaching the handler means 400
-	for _, path := range []string{"/api/ping", "/api/radius/disconnect", "/api/snmp/read/routeros"} {
+	for _, path := range apiPaths {
 		if rec := serve(h, "POST", path, "api-token", ""); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s with the token: %d, want the handler's 400", path, rec.Code)
 		}

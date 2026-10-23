@@ -1,5 +1,6 @@
-// Watcher Agent is a small HTTPS agent next to the network: it pings, disconnects RADIUS sessions and reads
-// RouterOS over SNMP for Watcher, NMS and CRM, and provisions RouterOS devices with scripts from the NMS.
+// Watcher Agent is a small HTTPS agent next to the network: it pings, disconnects RADIUS sessions, reads RouterOS
+// over SNMP and changes its address and access lists over the RouterOS API for Watcher, NMS and CRM, and provisions
+// RouterOS devices with scripts from the NMS.
 package main
 
 import (
@@ -25,6 +26,7 @@ func main() {
 	radiusCfg := LoadRadiusConfig()
 	snmpCfg := LoadSNMPConfig()
 	nmsCfg := LoadNMSConfig()
+	routerOSCfg := LoadRouterOSAPIConfig()
 
 	// Plain HTTP only redirects to HTTPS
 	srvHTTP := &http.Server{
@@ -33,7 +35,7 @@ func main() {
 	}
 
 	// HTTPS server (ACME or self-signed)
-	srvHTTPS, err := buildHTTPServer(appCfg, newHandler(appCfg, radiusCfg, snmpCfg, nmsCfg))
+	srvHTTPS, err := buildHTTPServer(appCfg, newHandler(appCfg, radiusCfg, snmpCfg, nmsCfg, routerOSCfg))
 	if err != nil {
 		log.Fatal(err)
 	}

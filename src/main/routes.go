@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"watcher-agent/src/domain/radius"
+	"watcher-agent/src/domain/routeros"
 	"watcher-agent/src/domain/snmp"
 	"watcher-agent/src/httpapi"
 	"watcher-agent/src/integration/nms"
@@ -13,7 +14,13 @@ import (
 
 // newHandler wires the endpoints: the API behind the Bearer token, RouterOS provisioning behind the address
 // list and the optional query token, all of it behind the drain middleware.
-func newHandler(appCfg AppConfig, radiusCfg radius.Config, snmpCfg snmp.Config, nmsCfg nms.Config) http.Handler {
+func newHandler(
+	appCfg AppConfig,
+	radiusCfg radius.Config,
+	snmpCfg snmp.Config,
+	nmsCfg nms.Config,
+	routerOSCfg routeros.Config,
+) http.Handler {
 	provCfg := httpapi.ProvisionConfig{
 		AgentID:     appCfg.AgentID,
 		DeviceTypes: appCfg.DeviceTypes,
@@ -29,6 +36,7 @@ func newHandler(appCfg AppConfig, radiusCfg radius.Config, snmpCfg snmp.Config, 
 	pingSvc := httpapi.NewPingService()
 	radiusSvc := httpapi.NewRadiusService(radiusCfg)
 	snmpSvc := httpapi.NewSNMPService(snmpCfg)
+	routerOSSvc := httpapi.NewRouterOSService(routerOSCfg)
 	provisionSvc := httpapi.NewProvisionService(
 		provCfg,
 		snmpCfg,
@@ -58,6 +66,23 @@ func newHandler(appCfg AppConfig, radiusCfg radius.Config, snmpCfg snmp.Config, 
 	mux.Handle(
 		"/api/snmp/read/routeros",
 		bearerAuth(appCfg, http.HandlerFunc(snmpSvc.HandleRouterOSRead)),
+	)
+
+	mux.Handle(
+		"/api/routeros/address-list/sync",
+		bearerAuth(appCfg, http.HandlerFunc(routerOSSvc.HandleAddressListSync)),
+	)
+	mux.Handle(
+		"/api/routeros/address-list/add",
+		bearerAuth(appCfg, http.HandlerFunc(routerOSSvc.HandleAddressListAdd)),
+	)
+	mux.Handle(
+		"/api/routeros/address-list/remove",
+		bearerAuth(appCfg, http.HandlerFunc(routerOSSvc.HandleAddressListRemove)),
+	)
+	mux.Handle(
+		"/api/routeros/access-list/remove",
+		bearerAuth(appCfg, http.HandlerFunc(routerOSSvc.HandleAccessListRemove)),
 	)
 
 	// RouterOS provisioning (guarded by allowlist + optional query token)

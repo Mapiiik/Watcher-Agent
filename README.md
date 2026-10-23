@@ -9,13 +9,15 @@ A small, self-contained HTTP agent that runs **close to the network** (a Docker 
 on-site, or directly on a MikroTik board) and lets a central **Watcher / NMS / CRM**
 reach customer-edge devices it cannot talk to directly.
 
-The agent exposes a thin, token-protected HTTP API for four jobs:
+The agent exposes a thin, token-protected HTTP API for these jobs:
 
 | Job | Endpoint | Protocol used towards the device |
 | --- | --- | --- |
 | **Reachability check** | `POST /api/ping` | ICMP echo (IPv4 & IPv6) |
 | **Session teardown** | `POST /api/radius/disconnect` | RADIUS Disconnect (CoA, RFC 3576 / 5176) |
 | **Inventory read** | `POST /api/snmp/read/routeros` | SNMP v2c |
+| **Firewall address lists** (debtor blocking) | `POST /api/routeros/address-list/{sync,add,remove}` | RouterOS API (`api-ssl`, `api` as a fallback) |
+| **Access point access lists** | `POST /api/routeros/access-list/remove` | RouterOS API (`api-ssl`, `api` as a fallback) |
 | **Auto-provisioning** | `GET /provision/routeros/{type}/{serial}` | SNMP v2c + call to NMS |
 
 It speaks **HTTPS** (self-signed by default, or Let's Encrypt via ACME), supports the
@@ -32,7 +34,8 @@ draining in-flight requests.
         └─────────────────────┘   /api/ping                   │   (on-site)   │
                   ▲                /api/radius/disconnect       └──────┬────────┘
                   │                /api/snmp/read/routeros              │
-                  │                                                     │ ICMP / SNMP / RADIUS
+                  │                /api/routeros/…                      │ ICMP / SNMP / RADIUS
+                  │                                                     │ RouterOS API
                   │                                              ┌──────▼────────┐
                   │  provision script (JSON)                     │ Edge devices  │
                   └──────────────────────────────────────────── │ (RouterOS, …) │
@@ -106,6 +109,11 @@ All configuration is via environment variables (see [.env.example](.env.example)
 | `AGENT_RADIUS_TIMEOUT_MS` | | `1500` | Per-attempt RADIUS timeout. |
 | `AGENT_RADIUS_RETRIES` | | `1` | RADIUS retries. |
 | `AGENT_DEVICE_TYPES_JSON` | | `{}` | Maps a device-type identifier to its SNMP community (see below). |
+| `AGENT_ROUTEROS_API_USERNAME` | | _(empty)_ | Account the agent logs in to RouterOS devices with. Empty: the `/api/routeros/*` endpoints answer `503`. |
+| `AGENT_ROUTEROS_API_PASSWORD` | | _(empty)_ | Its password (not trimmed). |
+| `AGENT_ROUTEROS_API_PLAIN_FALLBACK` | | `false` | `true` allows the unencrypted `api` (8728) where `api-ssl` (8729) is refused or the router has no certificate. See [RouterOS API transport](#routeros-api-transport). |
+| `AGENT_ROUTEROS_API_CA_FINGERPRINT` | | _(empty)_ | SHA-256 of a CA certificate (hex, colons optional). Set: the router's certificate must be signed by this CA. Empty: encrypted without verification. A value that is not a fingerprint stops the agent from starting. |
+| `AGENT_ROUTEROS_API_TIMEOUT_MS` | | `5000` | Timeout for connecting and for each RouterOS API command. |
 
 `AGENT_DEVICE_TYPES_JSON` is consulted during provisioning to pick the SNMP community
 for a given device type:
@@ -202,6 +210,95 @@ Reads device, interface and IP-address inventory from a RouterOS device over SNM
 > `SNMP walk failed … for .1.3.6.1.2.1.4.20.1.1: empty response`. RouterOS does **not**
 > implement the newer `ipAddressTable` (`.4.34`), so there is no fallback.
 
+### `POST /api/routeros/address-list/sync` · `add` · `remove`
+
+Changes a firewall address list on a RouterOS device, both `/ip` and `/ipv6`; the agent picks
+the family from each address. Addresses are compared as the firewall reads them, so
+`192.0.2.1` and `192.0.2.1/32` are one entry and a network is masked. Only static entries are
+touched: a dynamic one was put there by a firewall rule with a timeout.
+
+- **`sync`** makes the list hold exactly `entries`: missing ones are added, a different comment
+  or a disabled entry is corrected, everything else on the list is removed.
+- **`add`** writes `entries` and leaves the rest of the list alone.
+- **`remove`** takes `addresses` off the list.
+
+Removals always come last, so a command failing half way leaves the list blocking more
+rather than fewer. `entries` (or `addresses`) must be present; an empty array is fine and
+with `sync` empties the list.
+
+```jsonc
+// request (sync, add)
+{
+  "host": "192.0.2.1", "list": "debtors",
+  "entries": [
+    { "address": "198.51.100.7", "comment": "1234 - Jan Novak" },
+    { "address": "2001:db8:1::/48", "comment": "1235 - Firma s.r.o." }
+  ]
+}
+// request (remove)
+{ "host": "192.0.2.1", "list": "debtors", "addresses": ["198.51.100.7"] }
+```
+```jsonc
+// response
+{
+  "host": "192.0.2.1", "transport": "api-ssl",
+  "added":   [ { "address": "198.51.100.7", "family": "ipv4", "comment": "1234 - Jan Novak" } ],
+  "updated": [],
+  "removed": [ { "address": "203.0.113.9", "family": "ipv4", "comment": "1200 - Paid Meanwhile" } ],
+  "unchanged": 41
+}
+```
+
+### `POST /api/routeros/access-list/remove`
+
+Removes a station from the access lists of an access point, so that it has to be accepted
+again. Tries `/interface/wireless`, `/interface/wifi` and `/interface/wifiwave2` (the name
+before RouterOS 7.13) and passes over those the device does not have.
+
+```jsonc
+// request
+{ "host": "10.1.2.3", "mac_address": "AA:BB:CC:DD:EE:FF" }
+```
+```jsonc
+// response
+{
+  "host": "10.1.2.3", "transport": "api",
+  "removed": [ { "menu": "/interface/wifi/access-list", "interface": "wifi1", "mac_address": "AA:BB:CC:DD:EE:FF" } ]
+}
+```
+
+Errors of the RouterOS endpoints:
+
+| Status | `error` | When |
+| --- | --- | --- |
+| 400 | `bad_request` | Unreadable JSON, a missing parameter, an address or MAC that is not one. |
+| 503 | `not_configured` | `AGENT_ROUTEROS_API_USERNAME` is empty. |
+| 502 | `routeros_unreachable` | No connection by any allowed way. |
+| 502 | `routeros_login_failed` | The device refused the login. |
+| 502 | `routeros_certificate_invalid` | A CA fingerprint is set and the device's certificate does not pass it. |
+| 502 | `routeros_command_failed` | The device refused a command; the message names it and what was done before. |
+
+#### RouterOS API transport
+
+The agent connects to `api-ssl` (8729) first. Without a certificate RouterOS offers only
+anonymous Diffie-Hellman there, which Go does not implement, so a router needs a
+certificate for it; a self-signed one made on the router is enough.
+
+The unencrypted `api` (8728) is tried only with `AGENT_ROUTEROS_API_PLAIN_FALLBACK=true`, and
+only when the router does no TLS at all: `api-ssl` refuses the connection, or answers the
+handshake with a `handshake_failure` alert (no certificate). A timeout, a broken handshake,
+a certificate failing the CA or a login refused over TLS are errors and never lead to the
+plain `api`. Every plain connection is logged with the reason:
+
+```
+RouterOS API 192.0.2.1: plain api (no certificate for api-ssl)
+```
+
+Without `AGENT_ROUTEROS_API_CA_FINGERPRINT` the certificate is not verified: the point is
+that the password does not travel in clear text. With it, the CA has to be in the chain the
+router sends and has to have signed the router's certificate. Neither the router's address
+nor its name is checked, as both change when devices are replaced or renumbered.
+
 ### `GET /provision/routeros/{deviceType}/{serial}`
 
 Called **by the RouterOS device itself** during auto-provisioning. Guarded by
@@ -257,11 +354,12 @@ nothing runs on the target platform, so the arm64 image needs no emulation.
 ```
 src/
   main/          process wiring: config, TLS, auth, graceful drain, HTTP servers
-  httpapi/       HTTP handlers (root, status, ping, radius, snmp, provision)
+  httpapi/       HTTP handlers (root, status, ping, radius, snmp, routeros, provision)
   httphelpers/   JSON and RouterOS error responses
   domain/
     snmp/        RouterOS SNMP read (device, interfaces, IP addresses, wireless)
     radius/      RADIUS Disconnect (RFC 3576 / 5176)
+    routeros/    RouterOS API: address lists, access lists, api-ssl with the plain api fallback
   infra/
     icmpengine4/ shared IPv4 ICMP socket + ping engine
     icmpengine6/ shared IPv6 ICMP socket + ping engine
@@ -269,6 +367,7 @@ src/
     nms/         client for the central NMS provisioning API
   testutil/
     snmpagent/   minimal SNMP v2c agent the tests read from
+    routerosapi/ minimal RouterOS API server (plain and TLS) the tests talk to
 ```
 
 ---

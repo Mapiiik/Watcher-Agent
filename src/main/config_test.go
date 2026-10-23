@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,6 +12,8 @@ var agentEnv = []string{
 	"AGENT_API_TOKEN", "AGENT_ID", "AGENT_ROUTEROS_ALLOW_CIDRS", "AGENT_ROUTEROS_QUERY_TOKEN",
 	"AGENT_DEVICE_TYPES_JSON", "AGENT_SNMP_PORT", "AGENT_SNMP_TIMEOUT_MS", "AGENT_SNMP_RETRIES",
 	"AGENT_RADIUS_PORT", "AGENT_RADIUS_TIMEOUT_MS", "AGENT_RADIUS_RETRIES", "AGENT_NMS_BASE_URL", "AGENT_NMS_TOKEN",
+	"AGENT_ROUTEROS_API_USERNAME", "AGENT_ROUTEROS_API_PASSWORD", "AGENT_ROUTEROS_API_PLAIN_FALLBACK",
+	"AGENT_ROUTEROS_API_CA_FINGERPRINT", "AGENT_ROUTEROS_API_TIMEOUT_MS",
 }
 
 // cleanEnv empties every variable the agent reads; an empty value counts as not set.
@@ -136,4 +139,35 @@ func TestLoadNMSConfig(t *testing.T) {
 	if cfg.BaseURL != "https://nms.example.net" || cfg.Token != "nms-token" || cfg.Timeout != 10*time.Second {
 		t.Errorf("NMS = %+v", cfg)
 	}
+}
+
+func TestLoadRouterOSAPIConfig(t *testing.T) {
+	cleanEnv(t)
+
+	cfg := LoadRouterOSAPIConfig()
+	if cfg.Configured() || cfg.PlainFallback || cfg.CAFingerprint != nil || cfg.Timeout != 5*time.Second ||
+		cfg.TLSPort != 8729 || cfg.PlainPort != 8728 {
+		t.Errorf("defaults = %+v", cfg)
+	}
+
+	t.Setenv("AGENT_ROUTEROS_API_USERNAME", " watcher-agent ")
+	t.Setenv("AGENT_ROUTEROS_API_PASSWORD", " s3cret ")
+	t.Setenv("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "true")
+	t.Setenv("AGENT_ROUTEROS_API_CA_FINGERPRINT", strings.Repeat("ab:", 31)+"ab")
+	t.Setenv("AGENT_ROUTEROS_API_TIMEOUT_MS", "800")
+
+	cfg = LoadRouterOSAPIConfig()
+	if cfg.Username != "watcher-agent" || cfg.Password != " s3cret " || !cfg.PlainFallback ||
+		len(cfg.CAFingerprint) != 32 || cfg.Timeout != 800*time.Millisecond {
+		t.Errorf("RouterOS API = %+v", cfg)
+	}
+
+	// Only the exact value "true" lets the password go unencrypted
+	t.Setenv("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "1")
+	if LoadRouterOSAPIConfig().PlainFallback {
+		t.Error(`"1" turned the plain api on`)
+	}
+
+	t.Setenv("AGENT_ROUTEROS_API_CA_FINGERPRINT", "ab:cd")
+	mustPanic(t, "a fingerprint that is not one", func() { LoadRouterOSAPIConfig() })
 }

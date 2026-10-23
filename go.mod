@@ -3,6 +3,7 @@ module watcher-agent
 go 1.27.3
 
 require (
+	github.com/go-routeros/routeros/v3 v3.0.1
 	github.com/gosnmp/gosnmp v1.43.2
 	github.com/pires/go-proxyproto v0.12.0
 	golang.org/x/crypto v0.52.0
