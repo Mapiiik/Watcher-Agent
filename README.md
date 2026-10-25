@@ -94,6 +94,7 @@ All configuration is via environment variables (see [.env.example](.env.example)
 | `AGENT_API_TOKEN` | ✅ | — | Bearer token for the `/api/*` endpoints. |
 | `AGENT_NMS_BASE_URL` | ✅ | — | Base URL of the NMS used for provisioning. |
 | `AGENT_NMS_TOKEN` | ✅ | — | Bearer token the agent uses when calling the NMS. |
+| `AGENT_NMS_VERIFY_TLS` | | `true` | `false` only against a development NMS with a certificate of its own. |
 | `AGENT_ID` | | `agent-1` | Identifier reported in status / provisioning calls. |
 | `AGENT_LISTEN_HTTP` | | `0.0.0.0:80` | HTTP listen address (redirects to HTTPS). |
 | `AGENT_LISTEN_HTTPS` | | `0.0.0.0:443` | HTTPS listen address (the actual API). |

@@ -12,6 +12,7 @@ var agentEnv = []string{
 	"AGENT_API_TOKEN", "AGENT_ID", "AGENT_ROUTEROS_ALLOW_CIDRS", "AGENT_ROUTEROS_QUERY_TOKEN",
 	"AGENT_DEVICE_TYPES_JSON", "AGENT_SNMP_PORT", "AGENT_SNMP_TIMEOUT_MS", "AGENT_SNMP_RETRIES",
 	"AGENT_RADIUS_PORT", "AGENT_RADIUS_TIMEOUT_MS", "AGENT_RADIUS_RETRIES", "AGENT_NMS_BASE_URL", "AGENT_NMS_TOKEN",
+	"AGENT_NMS_VERIFY_TLS",
 	"AGENT_ROUTEROS_API_USERNAME", "AGENT_ROUTEROS_API_PASSWORD", "AGENT_ROUTEROS_API_PLAIN_FALLBACK",
 	"AGENT_ROUTEROS_API_CA_FINGERPRINT", "AGENT_ROUTEROS_API_TIMEOUT_MS",
 }
@@ -136,8 +137,19 @@ func TestLoadNMSConfig(t *testing.T) {
 
 	t.Setenv("AGENT_NMS_TOKEN", "nms-token")
 	cfg := LoadNMSConfig()
-	if cfg.BaseURL != "https://nms.example.net" || cfg.Token != "nms-token" || cfg.Timeout != 10*time.Second {
+	if cfg.BaseURL != "https://nms.example.net" || cfg.Token != "nms-token" || cfg.Timeout != 10*time.Second ||
+		cfg.SkipTLSVerify {
 		t.Errorf("NMS = %+v", cfg)
+	}
+
+	t.Setenv("AGENT_NMS_VERIFY_TLS", "no")
+	if LoadNMSConfig().SkipTLSVerify {
+		t.Error("only an explicit false turns the check off")
+	}
+
+	t.Setenv("AGENT_NMS_VERIFY_TLS", "false")
+	if !LoadNMSConfig().SkipTLSVerify {
+		t.Error("AGENT_NMS_VERIFY_TLS=false did not turn the check off")
 	}
 }
 

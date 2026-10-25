@@ -135,5 +135,7 @@ func LoadNMSConfig() nms.Config {
 		BaseURL: mustEnv("AGENT_NMS_BASE_URL"),
 		Token:   mustEnv("AGENT_NMS_TOKEN"),
 		Timeout: 10 * time.Second,
+		// Anything but an explicit "false" keeps the certificate checked
+		SkipTLSVerify: envDefault("AGENT_NMS_VERIFY_TLS", "true") == "false",
 	}
 }

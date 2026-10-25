@@ -76,6 +76,23 @@ func TestGetRouterOSProvisionScriptInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestGetRouterOSProvisionScriptCertificate(t *testing.T) {
+	// httptest signs its certificate with a CA of its own, like a development NMS
+	nms := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"script":"/system identity set name=customer-1"}`))
+	}))
+	defer nms.Close()
+
+	if _, err := client(nms.URL).GetRouterOSProvisionScript(RouterOSProvisionRequest{}); err == nil {
+		t.Error("a certificate nobody vouches for was accepted")
+	}
+
+	skipping := NewNMSClient(Config{BaseURL: nms.URL, Token: "nms-token", Timeout: time.Second, SkipTLSVerify: true})
+	if _, err := skipping.GetRouterOSProvisionScript(RouterOSProvisionRequest{}); err != nil {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestGetRouterOSProvisionScriptUnreachable(t *testing.T) {
 	nms := httptest.NewServer(http.NotFoundHandler())
 	url := nms.URL

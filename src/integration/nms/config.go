@@ -7,4 +7,6 @@ type Config struct {
 	BaseURL string
 	Token   string
 	Timeout time.Duration
+	// Only against a development NMS with a certificate of its own
+	SkipTLSVerify bool
 }

@@ -1,6 +1,7 @@
 package nms
 
 import (
+	"crypto/tls"
 	"net/http"
 )
 
@@ -11,8 +12,18 @@ type NMSClient struct {
 }
 
 func NewNMSClient(cfg Config) *NMSClient {
+	hc := &http.Client{Timeout: cfg.Timeout}
+	if cfg.SkipTLSVerify {
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.TLSClientConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec // only when the configuration says so
+		}
+		hc.Transport = t
+	}
+
 	return &NMSClient{
 		cfg: cfg,
-		hc:  &http.Client{Timeout: cfg.Timeout},
+		hc:  hc,
 	}
 }
