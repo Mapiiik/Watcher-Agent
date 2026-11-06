@@ -2,15 +2,18 @@ package httpapi
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	"watcher-agent/src/httphelpers"
 )
 
 type StatusService struct {
-	agentID     string
-	deviceTypes map[string]DeviceTypeConfig
+	agentID string
+	// Only the names, the communities are nobody's business here
+	deviceTypes []string
 	startTime   time.Time
 }
 
@@ -18,9 +21,12 @@ func NewStatusService(
 	agentID string,
 	deviceTypes map[string]DeviceTypeConfig,
 ) *StatusService {
+	names := slices.AppendSeq(make([]string, 0, len(deviceTypes)), maps.Keys(deviceTypes))
+	slices.Sort(names)
+
 	return &StatusService{
 		agentID:     agentID,
-		deviceTypes: deviceTypes,
+		deviceTypes: names,
 		startTime:   time.Now(),
 	}
 }

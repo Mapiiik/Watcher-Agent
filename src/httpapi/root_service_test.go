@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -45,7 +47,7 @@ func TestHandleStatus(t *testing.T) {
 		Uptime        string `json:"uptime"`
 		UptimeSeconds int64  `json:"uptime_seconds"`
 		Capabilities  struct {
-			DeviceTypes map[string]DeviceTypeConfig `json:"device_types"`
+			DeviceTypes []string `json:"device_types"`
 		} `json:"capabilities"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -58,8 +60,32 @@ func TestHandleStatus(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339, body.StartedAt); err != nil {
 		t.Errorf("started_at %q: %v", body.StartedAt, err)
 	}
-	if body.Capabilities.DeviceTypes["router"].Community != "secret" {
+	if !slices.Equal(body.Capabilities.DeviceTypes, []string{"router"}) {
 		t.Errorf("device types = %v", body.Capabilities.DeviceTypes)
+	}
+}
+
+func TestHandleStatusNamesTheDeviceTypesOnly(t *testing.T) {
+	rec := httptest.NewRecorder()
+	NewStatusService("agent-7", map[string]DeviceTypeConfig{
+		"router": {Community: "router-community"},
+		"bridge": {Community: "bridge-community"},
+	}).HandleStatus(rec, httptest.NewRequest("GET", "/api/status", nil))
+
+	if want := `"device_types":["bridge","router"]`; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("%s, want %s", rec.Body.String(), want)
+	}
+	if strings.Contains(rec.Body.String(), "community") {
+		t.Errorf("the answer gives a community away: %s", rec.Body.String())
+	}
+}
+
+func TestHandleStatusWithoutDeviceTypes(t *testing.T) {
+	rec := httptest.NewRecorder()
+	NewStatusService("agent-7", nil).HandleStatus(rec, httptest.NewRequest("GET", "/api/status", nil))
+
+	if want := `"device_types":[]`; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("%s, want %s", rec.Body.String(), want)
 	}
 }
 

@@ -144,7 +144,7 @@ Errors use `{ "error": "<code>", "message": "<text>" }`.
 
 ### `GET /api/status`
 
-Returns uptime and advertised capabilities (the configured device types).
+Returns uptime and advertised capabilities (the names of the configured device types).
 
 ### `POST /api/ping`
 
