@@ -32,7 +32,8 @@ var tls12CipherSuites = []uint16{
 // WriteTimeout runs from the end of the request headers, so it has to outlast the longest request: provisioning, with
 // a serial check of up to 9 s before the full read and up to 10 s of the NMS after it. It leaves 20 s to spare.
 const (
-	serverReadHeaderTimeout = 10 * time.Second
+	// also bounds the TLS handshake, which a weak router on a poor link takes its time over
+	serverReadHeaderTimeout = 30 * time.Second
 	serverReadTimeout       = 30 * time.Second
 	serverWriteTimeout      = snmp.ReadTimeLimit + 40*time.Second
 	serverIdleTimeout       = 120 * time.Second

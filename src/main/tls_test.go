@@ -141,7 +141,7 @@ func TestServersHaveTimeouts(t *testing.T) {
 	}
 
 	for name, srv := range map[string]*http.Server{"HTTP": newServer("", ok), "HTTPS": https} {
-		if srv.ReadHeaderTimeout != 10*time.Second || srv.ReadTimeout != 30*time.Second || srv.IdleTimeout != 120*time.Second {
+		if srv.ReadHeaderTimeout != 30*time.Second || srv.ReadTimeout != 30*time.Second || srv.IdleTimeout != 120*time.Second {
 			t.Errorf("%s: header %v, read %v, idle %v", name, srv.ReadHeaderTimeout, srv.ReadTimeout, srv.IdleTimeout)
 		}
 		// Provisioning: the serial check, a full read and the call to the NMS, the NMS itself waits 120 s
