@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,37 +32,92 @@ func TestDrainMiddlewareRejectsWhileDraining(t *testing.T) {
 	}
 }
 
-// Shutdown waits for activeRequests, so a request still running has to hold it.
-func TestDrainMiddlewareCountsRunningRequests(t *testing.T) {
-	release := make(chan struct{})
-	h := drainMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+// serveBlocked starts a server whose handler stays in a request until released, and sends it one request. It returns
+// once the handler is running; the status of the answer comes on the channel.
+func serveBlocked(t *testing.T) (srv *http.Server, release chan struct{}, status chan int) {
+	t.Helper()
 
-	served := make(chan struct{})
+	release = make(chan struct{})
+	running := make(chan struct{})
+	srv = newServer("", drainMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(running)
+		<-release
+	})))
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		draining.Store(false)
+		_ = srv.Close()
+	})
+
+	status = make(chan int, 1)
 	go func() {
-		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
-		close(served)
+		resp, err := http.Get("http://" + ln.Addr().String() + "/")
+		if err != nil {
+			status <- 0
+			return
+		}
+		_ = resp.Body.Close()
+		status <- resp.StatusCode
 	}()
 
-	// Let the request get into the handler
-	time.Sleep(20 * time.Millisecond)
+	<-running
 
-	waited := make(chan struct{})
+	return srv, release, status
+}
+
+func TestShutdownWaitsForARunningRequest(t *testing.T) {
+	srv, release, status := serveBlocked(t)
+
+	stopped := make(chan struct{})
 	go func() {
-		activeRequests.Wait()
-		close(waited)
+		shutdown(5*time.Second, srv)
+		close(stopped)
 	}()
 
 	select {
-	case <-waited:
-		t.Fatal("Wait returned while a request was running")
+	case <-stopped:
+		t.Fatal("shutdown returned while a request was running")
 	case <-time.After(50 * time.Millisecond):
 	}
 
 	close(release)
-	<-served
+
+	if got := <-status; got != http.StatusOK {
+		t.Errorf("status = %d", got)
+	}
 	select {
-	case <-waited:
+	case <-stopped:
 	case <-time.After(time.Second):
-		t.Fatal("Wait did not return after the request finished")
+		t.Fatal("shutdown did not return after the request finished")
+	}
+}
+
+// A request that does not end must not keep the agent from stopping.
+func TestShutdownGivesUpAtTheTimeout(t *testing.T) {
+	srv, release, _ := serveBlocked(t)
+	t.Cleanup(func() { close(release) })
+
+	stopped := make(chan struct{})
+	go func() {
+		shutdown(100*time.Millisecond, srv)
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown did not give up")
+	}
+}
+
+// Requests in progress get as long as Docker leaves the process.
+func TestShutdownTimeoutFitsTheComposeFiles(t *testing.T) {
+	if shutdownTimeout < 30*time.Second || shutdownTimeout >= 60*time.Second {
+		t.Errorf("shutdown timeout = %v, the compose files give 60 s", shutdownTimeout)
 	}
 }

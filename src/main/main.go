@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"log"
 	"net"
@@ -12,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
 func main() {
@@ -78,21 +76,7 @@ func main() {
 	<-sigChan
 	log.Println("Shutdown signal received")
 
-	// Set draining flag to reject new requests
-	draining.Store(true)
-
-	// Wait for active requests to finish
-	activeRequests.Wait()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srvHTTP.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTP shutdown error: %v", err)
-	}
-	if err := srvHTTPS.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTPS shutdown error: %v", err)
-	}
+	shutdown(shutdownTimeout, srvHTTP, srvHTTPS)
 
 	<-httpsStopped
 	log.Println("Watcher Agent stopped gracefully")

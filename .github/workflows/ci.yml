@@ -110,7 +110,7 @@ jobs:
           args: --timeout=5m
 
       - name: Go test
-        run: go test ./...
+        run: go test -race ./...
 
   docker:
     name: Build & Push Docker image

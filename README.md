@@ -334,8 +334,8 @@ On any failure the response is a RouterOS-runnable error line so the device logs
   an idle connection is closed after 120 s, and an answer has to be out within 150 s, which
   is longer than the longest request takes.
 - **Graceful shutdown.** On `SIGINT`/`SIGTERM` the agent stops accepting new requests,
-  waits for in-flight ones to finish, then shuts down (10 s timeout). Give the container
-  enough `stop_grace_period` (the compose files use 60 s).
+  waits up to 50 s for in-flight ones to finish, then shuts down. Keep `stop_grace_period`
+  above that (the compose files use 60 s).
 - **Running on a MikroTik board.** RouterOS 7.x can run the agent as a native container.
   See [docs/routeros-container.md](docs/routeros-container.md) for a starting point
   (note: ICMP ping may be unavailable inside a RouterOS container).
