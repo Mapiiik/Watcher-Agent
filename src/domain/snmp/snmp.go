@@ -28,6 +28,10 @@ const ReadTimeLimit = 110 * time.Second
 // table has a value per interface or address, a wireless one around a dozen, and devices have hundreds of those.
 const walkValueLimit = 50_000
 
+// walkByteLimit bounds what one walk keeps, as a few values can be as large as a packet. A column is walked
+// on its own, so a router with 50 000 PPPoE interfaces under the longest names takes about 15 MB of this.
+const walkByteLimit = 64 << 20
+
 var errTooManyValues = errors.New("too many values")
 
 // SNMPDevice is the system part of a read, pointer fields are nil when the device lacks the value.
@@ -119,14 +123,20 @@ func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
 }
 
 func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error) {
+	return walkMapWithin(g, baseOID, walkValueLimit, walkByteLimit)
+}
+
+func walkMapWithin(g *gosnmp.GoSNMP, baseOID string, valueLimit, byteLimit int) (map[string]gosnmp.SnmpPDU, error) {
 	for i := 0; i < snmpAttempts; i++ {
 		out := make(map[string]gosnmp.SnmpPDU)
+		size := 0
 
 		err := g.BulkWalk(baseOID, func(pdu gosnmp.SnmpPDU) error {
 			if pdu.Type == gosnmp.NoSuchInstance || pdu.Type == gosnmp.NoSuchObject {
 				return nil
 			}
-			if len(out) >= walkValueLimit {
+			size += pduSize(pdu)
+			if len(out) >= valueLimit || size > byteLimit {
 				return errTooManyValues
 			}
 			suffix := strings.TrimPrefix(pdu.Name, baseOID+".")
@@ -136,7 +146,7 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
 
 		// Another attempt would only fetch the same again
 		if errors.Is(err, errTooManyValues) {
-			return nil, fmt.Errorf("SNMP walk stopped for %s: %w (over %d)", baseOID, err, walkValueLimit)
+			return nil, fmt.Errorf("SNMP walk stopped for %s: %w (over %d or %d bytes)", baseOID, err, valueLimit, byteLimit)
 		}
 
 		if err == nil && len(out) > 0 {
@@ -152,6 +162,18 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
 	}
 
 	return nil, fmt.Errorf("SNMP walk failed for %s", baseOID)
+}
+
+// pduSize is what keeping a value takes, its name and its text.
+func pduSize(pdu gosnmp.SnmpPDU) int {
+	size := len(pdu.Name)
+	switch value := pdu.Value.(type) {
+	case []byte:
+		size += len(value)
+	case string:
+		size += len(value)
+	}
+	return size
 }
 
 func safePDU(m map[string]gosnmp.SnmpPDU, key string) (gosnmp.SnmpPDU, bool) {

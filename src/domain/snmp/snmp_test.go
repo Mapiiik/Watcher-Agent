@@ -3,6 +3,7 @@ package snmp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -302,6 +303,40 @@ func TestReadRouterOSFailsOverTheLimit(t *testing.T) {
 
 	if _, err := ReadRouterOS(agentConfig(a), "127.0.0.1", community); !errors.Is(err, errTooManyValues) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// A table of n interface names as long as a PPPoE concentrator has them.
+func pppoeNames(n int) []gosnmp.SnmpPDU {
+	pdus := make([]gosnmp.SnmpPDU, 0, n)
+	for i := 1; i <= n; i++ {
+		name := fmt.Sprintf("<pppoe-customer-with-a-long-name-%d>", i)
+		pdus = append(pdus, snmpagent.Text(".1.3.6.1.2.1.2.2.1.1."+strconv.Itoa(i), []byte(name)))
+	}
+	return pdus
+}
+
+// The limits are there for a device that lies, a big router has to read in full.
+func TestWalkTakesARouterFullOfPPPoEInterfaces(t *testing.T) {
+	m, err := walkInterfaces(t, snmpagent.Start(t, community, pppoeNames(20_000)))
+
+	if err != nil || len(m) != 20_000 {
+		t.Errorf("%d values, %v", len(m), err)
+	}
+}
+
+func TestWalkStopsOverTheLimitOnBytes(t *testing.T) {
+	a := snmpagent.Start(t, community, pppoeNames(100))
+	g, err := snmpSession(context.Background(), agentConfig(a), "127.0.0.1", community)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Conn.Close() })
+
+	m, err := walkMapWithin(g, ".1.3.6.1.2.1.2.2.1.1", walkValueLimit, 1_000)
+
+	if !errors.Is(err, errTooManyValues) || m != nil {
+		t.Errorf("%d values, %v", len(m), err)
 	}
 }
 
