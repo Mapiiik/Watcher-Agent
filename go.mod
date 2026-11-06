@@ -6,10 +6,10 @@ require (
 	github.com/go-routeros/routeros/v3 v3.0.1
 	github.com/gosnmp/gosnmp v1.43.2
 	github.com/pires/go-proxyproto v0.12.0
-	golang.org/x/crypto v0.52.0
-	golang.org/x/net v0.55.0
-	golang.org/x/text v0.37.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.62.0
+	golang.org/x/text v0.43.0
 	layeh.com/radius v0.0.0-20231213012653-1006025d24f8
 )
 
-require golang.org/x/sys v0.45.0 // indirect
+require golang.org/x/sys v0.49.0 // indirect
