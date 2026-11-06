@@ -74,8 +74,7 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 	if serial != serialReq {
 		httphelpers.WriteRouterOSError(
 			w,
-			"Serial mismatch (got %s, expected %s)",
-			serial,
+			"Serial mismatch (expected %s)",
 			serialReq,
 		)
 		return

@@ -79,6 +79,17 @@ func TestHandleRouterOS(t *testing.T) {
 	}
 }
 
+// The caller has to know the serial already, an answer must not hand it over.
+func TestHandleRouterOSMismatchKeepsTheAnsweredSerial(t *testing.T) {
+	p := newProvision(t, device(t, "HE408XYZ123"), http.StatusOK, `{"script":"/system identity set name=customer-1"}`)
+
+	rec := p.get("/provision/routeros/router/HE999")
+
+	if body := rec.Body.String(); strings.Contains(body, "HE408XYZ123") {
+		t.Errorf("the answer gives the serial away: %q", body)
+	}
+}
+
 // Every failure answers with a RouterOS script that only logs, so the device never runs anything else.
 func TestHandleRouterOSFailures(t *testing.T) {
 	cases := []struct {
@@ -93,7 +104,7 @@ func TestHandleRouterOSFailures(t *testing.T) {
 		{"unknown type", closedSNMP(t), http.StatusOK, "/provision/routeros/switch/HE408XYZ123", "Unknown device type or missing community (switch)"},
 		{"blank community", closedSNMP(t), http.StatusOK, "/provision/routeros/blank/HE408XYZ123", "Unknown device type or missing community (blank)"},
 		{"no answer", closedSNMP(t), http.StatusOK, "/provision/routeros/router/HE408XYZ123", "SNMP serial read failed: "},
-		{"other serial", device(t, "HE408XYZ123"), http.StatusOK, "/provision/routeros/router/HE999", "Serial mismatch (got HE408XYZ123, expected HE999)"},
+		{"other serial", device(t, "HE408XYZ123"), http.StatusOK, "/provision/routeros/router/HE999", "Serial mismatch (expected HE999)"},
 		{"NMS error", device(t, "HE408XYZ123"), http.StatusInternalServerError, "/provision/routeros/router/HE408XYZ123", "NMS provision failed: nms error 500: "},
 	}
 
