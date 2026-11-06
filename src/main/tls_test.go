@@ -5,11 +5,15 @@ import (
 	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"watcher-agent/src/domain/snmp"
 )
 
 func TestGenerateSelfSignedCert(t *testing.T) {
@@ -126,6 +130,64 @@ func TestSelfSignedTLSHandshake(t *testing.T) {
 		}
 		if (err == nil) != c.ok {
 			t.Errorf("%s: handshake error %v, want success %v", c.name, err, c.ok)
+		}
+	}
+}
+
+func TestServersHaveTimeouts(t *testing.T) {
+	https, err := buildHTTPServer(AppConfig{}, ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, srv := range map[string]*http.Server{"HTTP": newServer("", ok), "HTTPS": https} {
+		if srv.ReadHeaderTimeout != 10*time.Second || srv.ReadTimeout != 30*time.Second || srv.IdleTimeout != 120*time.Second {
+			t.Errorf("%s: header %v, read %v, idle %v", name, srv.ReadHeaderTimeout, srv.ReadTimeout, srv.IdleTimeout)
+		}
+		// Provisioning: the serial check, a full read and the call to the NMS, the NMS itself waits 120 s
+		if longest := 9*time.Second + snmp.ReadTimeLimit + 10*time.Second; srv.WriteTimeout <= longest || srv.WriteTimeout < 120*time.Second {
+			t.Errorf("%s: write %v, the longest request takes %v", name, srv.WriteTimeout, longest)
+		}
+	}
+}
+
+// A handler runs long after its request has been read, an SNMP read does.
+func TestRequestOutlastsReadTimeout(t *testing.T) {
+	for protocol, want := range map[string]string{"http/1.1": "HTTP/1.1", "h2": "HTTP/2.0"} {
+		srv, err := buildHTTPServer(AppConfig{}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(200 * time.Millisecond)
+			_, _ = io.WriteString(w, r.Proto)
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv.ReadHeaderTimeout = 50 * time.Millisecond
+		srv.ReadTimeout = 50 * time.Millisecond
+
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() { _ = srv.ServeTLS(newProxyListener(ln, []string{"127.0.0.0/8"}), "", "") }()
+		t.Cleanup(func() { _ = srv.Close() })
+
+		client := http.Client{Transport: &http.Transport{
+			ForceAttemptHTTP2: protocol == "h2",
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // the server's own certificate
+				NextProtos:         []string{protocol},
+			},
+		}}
+		defer client.CloseIdleConnections()
+
+		resp, err := client.Get("https://" + ln.Addr().String() + "/")
+		if err != nil {
+			t.Fatalf("%s: %v", protocol, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK || string(body) != want {
+			t.Errorf("%s: %d %q %v", protocol, resp.StatusCode, body, err)
 		}
 	}
 }

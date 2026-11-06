@@ -330,6 +330,9 @@ On any failure the response is a RouterOS-runnable error line so the device logs
 - **TLS.** With `AGENT_HOSTNAME` unset the agent serves a freshly generated self-signed
   certificate (30-day validity, regenerated on each restart). Set `AGENT_HOSTNAME` to a
   public name and persist `AGENT_CERT_DIR` to use ACME / Let's Encrypt instead.
+- **Timeouts.** A client gets 10 s for the request headers and 30 s for the whole request,
+  an idle connection is closed after 120 s, and an answer has to be out within 150 s, which
+  is longer than the longest request takes.
 - **Graceful shutdown.** On `SIGINT`/`SIGTERM` the agent stops accepting new requests,
   waits for in-flight ones to finish, then shuts down (10 s timeout). Give the container
   enough `stop_grace_period` (the compose files use 60 s).

@@ -27,10 +27,7 @@ func main() {
 	routerOSCfg := LoadRouterOSAPIConfig()
 
 	// Plain HTTP only redirects to HTTPS
-	srvHTTP := &http.Server{
-		Addr:    appCfg.ListenHttp,
-		Handler: httpsRedirect(appCfg.ListenHttps),
-	}
+	srvHTTP := newServer(appCfg.ListenHttp, httpsRedirect(appCfg.ListenHttps))
 
 	// HTTPS server (ACME or self-signed)
 	srvHTTPS, err := buildHTTPServer(appCfg, newHandler(appCfg, radiusCfg, snmpCfg, nmsCfg, routerOSCfg))

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
+
+	"watcher-agent/src/domain/snmp"
 )
 
 // TLS 1.2 suites with ECDHE and authenticated encryption only; TLS 1.3 suites are all of that kind.
@@ -27,17 +29,37 @@ var tls12CipherSuites = []uint16{
 	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 }
 
+// WriteTimeout runs from the end of the request headers, so it has to outlast the longest request: provisioning, with
+// a serial check of up to 9 s before the full read and up to 10 s of the NMS after it. It leaves 20 s to spare.
+const (
+	serverReadHeaderTimeout = 10 * time.Second
+	serverReadTimeout       = 30 * time.Second
+	serverWriteTimeout      = snmp.ReadTimeLimit + 40*time.Second
+	serverIdleTimeout       = 120 * time.Second
+)
+
+// newServer gives a server the timeouts that keep a silent client from holding its connection for ever.
+func newServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
+		IdleTimeout:       serverIdleTimeout,
+	}
+}
+
 func buildHTTPServer(cfg AppConfig, handler http.Handler) (*http.Server, error) {
 	tlsCfg, err := buildTLSConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &http.Server{
-		Addr:      cfg.ListenHttps,
-		Handler:   handler,
-		TLSConfig: tlsCfg,
-	}, nil
+	srv := newServer(cfg.ListenHttps, handler)
+	srv.TLSConfig = tlsCfg
+
+	return srv, nil
 }
 
 // buildTLSConfig uses ACME when AGENT_HOSTNAME is set, otherwise a self-signed certificate made at every start.
