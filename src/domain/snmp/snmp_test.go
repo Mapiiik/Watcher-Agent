@@ -1,6 +1,7 @@
 package snmp
 
 import (
+	"context"
 	"errors"
 	"maps"
 	"slices"
@@ -255,5 +256,74 @@ func checkInt(t *testing.T, what string, got *int, want int) {
 		} else {
 			t.Errorf("%s = %d, want %d", what, *got, want)
 		}
+	}
+}
+
+// A table of n values, with the first interface a read needs.
+func longTable(n int) []gosnmp.SnmpPDU {
+	pdus := make([]gosnmp.SnmpPDU, 0, n+1)
+	pdus = append(pdus, snmpagent.Text(".1.3.6.1.4.1.14988.1.1.7.3.0", []byte("HE408XYZ123")))
+	for i := 1; i <= n; i++ {
+		pdus = append(pdus, snmpagent.Int(".1.3.6.1.2.1.2.2.1.1."+strconv.Itoa(i), i))
+	}
+	return pdus
+}
+
+func walkInterfaces(t *testing.T, a *snmpagent.Agent) (map[string]gosnmp.SnmpPDU, error) {
+	t.Helper()
+
+	g, err := snmpSession(context.Background(), agentConfig(a), "127.0.0.1", community)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Conn.Close() })
+
+	return walkMap(g, ".1.3.6.1.2.1.2.2.1.1")
+}
+
+func TestWalkTakesATableUpToTheLimit(t *testing.T) {
+	m, err := walkInterfaces(t, snmpagent.Start(t, community, longTable(walkValueLimit)))
+
+	if err != nil || len(m) != walkValueLimit {
+		t.Errorf("%d values, %v", len(m), err)
+	}
+}
+
+func TestWalkStopsOverTheLimit(t *testing.T) {
+	m, err := walkInterfaces(t, snmpagent.Start(t, community, longTable(walkValueLimit+1)))
+
+	if !errors.Is(err, errTooManyValues) || m != nil {
+		t.Errorf("%d values, %v", len(m), err)
+	}
+}
+
+func TestReadRouterOSFailsOverTheLimit(t *testing.T) {
+	a := snmpagent.Start(t, community, longTable(walkValueLimit+1))
+
+	if _, err := ReadRouterOS(agentConfig(a), "127.0.0.1", community); !errors.Is(err, errTooManyValues) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// A walk that never ends has to end with the deadline of the read.
+func TestReadRouterOSStopsAtTheDeadline(t *testing.T) {
+	a := snmpagent.StartEndless(t, community, system(t), ".1.3.6.1.2.1.2.2.1.1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := readRouterOS(ctx, agentConfig(a), "127.0.0.1", community)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read went on past its deadline")
 	}
 }

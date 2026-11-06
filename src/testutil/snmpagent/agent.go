@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -20,10 +21,27 @@ type Agent struct {
 	conn      net.PacketConn
 	oids      []string
 	values    map[string]gosnmp.SnmpPDU
+
+	// Everything below this OID is made up, without an end
+	endless string
 }
 
 // Start serves the given values until the test ends. Names are numeric OIDs with a leading dot.
 func Start(t testing.TB, community string, values []gosnmp.SnmpPDU) *Agent {
+	t.Helper()
+
+	return start(t, community, values, "")
+}
+
+// StartEndless serves the values like Start and under base keeps making up ever higher OIDs, like a responder out to
+// exhaust whoever walks it. It answers slowly enough for a deadline to come before any limit on the number of values.
+func StartEndless(t testing.TB, community string, values []gosnmp.SnmpPDU, base string) *Agent {
+	t.Helper()
+
+	return start(t, community, values, base)
+}
+
+func start(t testing.TB, community string, values []gosnmp.SnmpPDU, endless string) *Agent {
 	t.Helper()
 
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -36,6 +54,7 @@ func Start(t testing.TB, community string, values []gosnmp.SnmpPDU) *Agent {
 		community: community,
 		conn:      conn,
 		values:    make(map[string]gosnmp.SnmpPDU, len(values)),
+		endless:   endless,
 	}
 	for _, v := range values {
 		a.values[v.Name] = v
@@ -105,6 +124,17 @@ func (a *Agent) answer(req *gosnmp.SnmpPacket) []gosnmp.SnmpPDU {
 
 // next returns up to count values following oid in the table, or EndOfMibView past its end.
 func (a *Agent) next(oid string, count int) []gosnmp.SnmpPDU {
+	if a.endless != "" && (oid == a.endless || strings.HasPrefix(oid, a.endless+".")) {
+		time.Sleep(time.Millisecond)
+
+		last, _ := strconv.Atoi(strings.TrimPrefix(strings.TrimPrefix(oid, a.endless), "."))
+		out := make([]gosnmp.SnmpPDU, 0, count)
+		for i := 1; i <= count; i++ {
+			out = append(out, Int(a.endless+"."+strconv.Itoa(last+i), 1))
+		}
+		return out
+	}
+
 	i := sort.Search(len(a.oids), func(i int) bool { return compareOIDs(a.oids[i], oid) > 0 })
 
 	var out []gosnmp.SnmpPDU

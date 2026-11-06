@@ -1,6 +1,7 @@
 package snmp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -18,6 +20,15 @@ import (
 var errSNMPEmpty = errors.New("snmp value empty")
 
 const snmpAttempts = 3
+
+// ReadTimeLimit bounds one full read. It stays under the 120 s the NMS waits, which then gets the error from the agent.
+const ReadTimeLimit = 110 * time.Second
+
+// walkValueLimit bounds one walk, so that a responder inventing ever higher OIDs cannot use up the memory. A real
+// table has a value per interface or address, a wireless one around a dozen, and devices have hundreds of those.
+const walkValueLimit = 50_000
+
+var errTooManyValues = errors.New("too many values")
 
 // SNMPDevice is the system part of a read, pointer fields are nil when the device lacks the value.
 type SNMPDevice struct {
@@ -61,7 +72,7 @@ type SNMPReadResult struct {
 	IPAddresses []SNMPIPAddress `json:"ip_addresses"`
 }
 
-func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
+func snmpSession(ctx context.Context, cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 	g := &gosnmp.GoSNMP{
 		Target:         host,
 		Port:           cfg.Port,
@@ -70,6 +81,7 @@ func snmpSession(cfg Config, host, community string) (*gosnmp.GoSNMP, error) {
 		Timeout:        cfg.Timeout,
 		Retries:        cfg.Retries,
 		MaxRepetitions: 20,
+		Context:        ctx,
 	}
 	if err := g.Connect(); err != nil {
 		return nil, err
@@ -114,10 +126,18 @@ func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error
 			if pdu.Type == gosnmp.NoSuchInstance || pdu.Type == gosnmp.NoSuchObject {
 				return nil
 			}
+			if len(out) >= walkValueLimit {
+				return errTooManyValues
+			}
 			suffix := strings.TrimPrefix(pdu.Name, baseOID+".")
 			out[suffix] = pdu
 			return nil
 		})
+
+		// Another attempt would only fetch the same again
+		if errors.Is(err, errTooManyValues) {
+			return nil, fmt.Errorf("SNMP walk stopped for %s: %w (over %d)", baseOID, err, walkValueLimit)
+		}
 
 		if err == nil && len(out) > 0 {
 			return out, nil
@@ -165,7 +185,7 @@ func getMAC(m map[string]gosnmp.SnmpPDU, key string) *string {
 
 // ReadRouterOSSerial reads only the serial number, the check before a full read in provisioning.
 func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
-	g, err := snmpSession(cfg, host, community)
+	g, err := snmpSession(context.Background(), cfg, host, community)
 	if err != nil {
 		return "", err
 	}
@@ -186,9 +206,16 @@ func ReadRouterOSSerial(cfg Config, host, community string) (string, error) {
 }
 
 // ReadRouterOS reads the system values, the interfaces with their wireless data and the IPv4 addresses. It
-// fails without the serial or a standard table, values a device may lack stay nil.
+// fails without the serial or a standard table and past ReadTimeLimit, values a device may lack stay nil.
 func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
-	g, err := snmpSession(cfg, host, community)
+	ctx, cancel := context.WithTimeout(context.Background(), ReadTimeLimit)
+	defer cancel()
+
+	return readRouterOS(ctx, cfg, host, community)
+}
+
+func readRouterOS(ctx context.Context, cfg Config, host, community string) (SNMPReadResult, error) {
+	g, err := snmpSession(ctx, cfg, host, community)
 	if err != nil {
 		return SNMPReadResult{}, err
 	}

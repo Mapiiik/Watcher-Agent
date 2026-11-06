@@ -206,6 +206,8 @@ Reads device, interface and IP-address inventory from a RouterOS device over SNM
 }
 ```
 
+A read gives up after 110 s, and on a table of over 50 000 values, far above what a real device has.
+
 > **RouterOS note:** the IP-address inventory comes from the standard `ipAddrTable`
 > (`.1.3.6.1.2.1.4.20`). Some RouterOS versions leave this table empty until the IP
 > address is re-applied on the device, which surfaces here as
