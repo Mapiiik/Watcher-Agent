@@ -8,7 +8,8 @@ import (
 )
 
 var agentEnv = []string{
-	"AGENT_LISTEN_HTTP", "AGENT_LISTEN_HTTPS", "AGENT_USE_PROXY_PROTOCOL", "AGENT_HOSTNAME", "AGENT_CERT_DIR",
+	"AGENT_LISTEN_HTTP", "AGENT_LISTEN_HTTPS", "AGENT_USE_PROXY_PROTOCOL", "AGENT_PROXY_ALLOW_CIDRS",
+	"AGENT_HOSTNAME", "AGENT_CERT_DIR",
 	"AGENT_API_TOKEN", "AGENT_ID", "AGENT_ROUTEROS_ALLOW_CIDRS", "AGENT_ROUTEROS_QUERY_TOKEN",
 	"AGENT_DEVICE_TYPES_JSON", "AGENT_SNMP_PORT", "AGENT_SNMP_TIMEOUT_MS", "AGENT_SNMP_RETRIES",
 	"AGENT_RADIUS_PORT", "AGENT_RADIUS_TIMEOUT_MS", "AGENT_RADIUS_RETRIES", "AGENT_NMS_BASE_URL", "AGENT_NMS_TOKEN",
@@ -43,6 +44,9 @@ func TestLoadAppConfigDefaults(t *testing.T) {
 	if cfg.ListenHttp != "0.0.0.0:80" || cfg.ListenHttps != "0.0.0.0:443" || cfg.UseProxyProtocol {
 		t.Errorf("listeners = %s %s proxy %v", cfg.ListenHttp, cfg.ListenHttps, cfg.UseProxyProtocol)
 	}
+	if len(cfg.ProxyAllowCIDRs) != 0 {
+		t.Errorf("PROXY header allowed from %v", cfg.ProxyAllowCIDRs)
+	}
 	if cfg.Hostname != "" || cfg.CertDir != "./certs" || cfg.AgentID != "agent-1" {
 		t.Errorf("hostname %q, cert dir %q, agent %q", cfg.Hostname, cfg.CertDir, cfg.AgentID)
 	}
@@ -61,6 +65,7 @@ func TestLoadAppConfig(t *testing.T) {
 	cleanEnv(t)
 	t.Setenv("AGENT_API_TOKEN", "api-token")
 	t.Setenv("AGENT_USE_PROXY_PROTOCOL", "true")
+	t.Setenv("AGENT_PROXY_ALLOW_CIDRS", " 172.18.0.0/16  fd0e:b807:26ee:1::/64 ")
 	t.Setenv("AGENT_ROUTEROS_ALLOW_CIDRS", " 10.0.0.0/8\t2a02:3c0::/29 ")
 	t.Setenv("AGENT_ROUTEROS_QUERY_TOKEN", " q-token ")
 	t.Setenv("AGENT_DEVICE_TYPES_JSON", `{"router":{"community":"secret"},"ap":{"community":"other"}}`)
@@ -69,6 +74,9 @@ func TestLoadAppConfig(t *testing.T) {
 
 	if !cfg.UseProxyProtocol {
 		t.Error("PROXY protocol off")
+	}
+	if !slices.Equal(cfg.ProxyAllowCIDRs, []string{"172.18.0.0/16", "fd0e:b807:26ee:1::/64"}) {
+		t.Errorf("PROXY header allowed from %v", cfg.ProxyAllowCIDRs)
 	}
 	if !slices.Equal(cfg.RouterOSAllowCIDRs, []string{"10.0.0.0/8", "2a02:3c0::/29"}) || cfg.RouterOSQueryToken != "q-token" {
 		t.Errorf("RouterOS access = %v %q", cfg.RouterOSAllowCIDRs, cfg.RouterOSQueryToken)

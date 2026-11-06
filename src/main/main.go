@@ -13,8 +13,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/pires/go-proxyproto"
 )
 
 func main() {
@@ -61,7 +59,7 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			proxyListener := &proxyproto.Listener{Listener: ln}
+			proxyListener := newProxyListener(ln, appCfg.ProxyAllowCIDRs)
 
 			log.Printf("Watcher Agent listening HTTPS on %s (PROXY protocol support enabled)", srvHTTPS.Addr)
 			if err := srvHTTPS.ServeTLS(proxyListener, "", ""); err != nil &&

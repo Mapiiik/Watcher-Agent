@@ -99,6 +99,7 @@ All configuration is via environment variables (see [.env.example](.env.example)
 | `AGENT_LISTEN_HTTP` | | `0.0.0.0:80` | HTTP listen address (redirects to HTTPS). |
 | `AGENT_LISTEN_HTTPS` | | `0.0.0.0:443` | HTTPS listen address (the actual API). |
 | `AGENT_USE_PROXY_PROTOCOL` | | `false` | Expect a PROXY-protocol header on the HTTPS listener. |
+| `AGENT_PROXY_ALLOW_CIDRS` | | _(empty)_ | Space-separated CIDRs of the proxy in front of the agent. A PROXY header is used only from these, from anywhere else it is ignored and the connection keeps its real address. Empty: the header is used from anybody and the agent logs a warning at start. **Set this with `AGENT_USE_PROXY_PROTOCOL`.** |
 | `AGENT_HOSTNAME` | | _(empty)_ | If set, obtain a Let's Encrypt cert via ACME for this host; if empty, a self-signed cert is generated. |
 | `AGENT_CERT_DIR` | | `./certs` | Directory where ACME certificates are cached. |
 | `AGENT_ROUTEROS_ALLOW_CIDRS` | | `0.0.0.0/0` | Space-separated CIDRs allowed to hit `/provision/routeros/`. **Restrict this.** |

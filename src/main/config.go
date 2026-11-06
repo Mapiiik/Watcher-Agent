@@ -20,6 +20,9 @@ type AppConfig struct {
 	ListenHttps      string
 	UseProxyProtocol bool
 
+	// Who may send a PROXY header, empty for anybody
+	ProxyAllowCIDRs []string
+
 	// Hostname for the ACME certificate, empty for a self-signed one
 	Hostname string
 	// Directory for the ACME certificates
@@ -81,6 +84,8 @@ func LoadAppConfig() AppConfig {
 		ListenHttp:       envDefault("AGENT_LISTEN_HTTP", "0.0.0.0:80"),
 		ListenHttps:      envDefault("AGENT_LISTEN_HTTPS", "0.0.0.0:443"),
 		UseProxyProtocol: envDefault("AGENT_USE_PROXY_PROTOCOL", "false") == "true",
+
+		ProxyAllowCIDRs: strings.Fields(os.Getenv("AGENT_PROXY_ALLOW_CIDRS")),
 
 		Hostname: envDefault("AGENT_HOSTNAME", ""),
 		CertDir:  envDefault("AGENT_CERT_DIR", "./certs"),
