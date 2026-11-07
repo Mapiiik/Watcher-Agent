@@ -7,18 +7,13 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
-// readLoop hands every echo reply to the ping waiting for its ID and drops the rest.
-func (e *Engine) readLoop() {
+// readLoop hands every echo reply on conn to the ping waiting for its ID and drops the rest, until conn is closed.
+// Acquire may open the next connection before this loop notices, so it works with its own and never with e.conn.
+func (e *Engine) readLoop(conn *icmp.PacketConn) {
 	buf := make([]byte, 1500)
 
 	for {
-		select {
-		case <-e.stopCh:
-			return
-		default:
-		}
-
-		n, peer, err := e.conn.ReadFrom(buf)
+		n, peer, err := conn.ReadFrom(buf)
 		if err != nil {
 			return
 		}

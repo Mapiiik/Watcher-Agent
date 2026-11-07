@@ -14,7 +14,7 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
-// errSNMPEmpty is returned by snmpGetText when an OID is absent or its value
+// errSNMPEmpty is returned by snmpGetText and walkMap when an OID is absent or its value
 // is empty after all retries. It is distinct from transport/protocol errors so
 // callers can decide whether to treat the absence as nil or as a failure.
 var errSNMPEmpty = errors.New("snmp value empty")
@@ -157,7 +157,7 @@ func walkMapWithin(g *gosnmp.GoSNMP, baseOID string, valueLimit, byteLimit int) 
 			if err != nil {
 				return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, err)
 			}
-			return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: empty response", snmpAttempts, baseOID)
+			return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, errSNMPEmpty)
 		}
 	}
 
@@ -315,12 +315,28 @@ func readRouterOS(ctx context.Context, cfg Config, host, community string) (SNMP
 		return SNMPReadResult{}, walkErr
 	}
 
-	// Wireless tables are optional — errors are silently ignored because these
-	// OIDs do not exist on non-wireless devices and gosnmp reports empty walk
-	// as an error, which would be a false positive on every wired device.
-	wlAp, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.3.1")   // wireless AP table
-	wlStat, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.1.1") // wireless station table
-	wl60g, _ := walkMap(g, ".1.3.6.1.4.1.14988.1.1.1.8.1")  // wireless 60 GHz table
+	// Wireless tables are optional: a wired device has none and answers with nothing. A table that could not be read
+	// is another thing, the read would say the interfaces have no SSID and the NMS would believe it.
+	optionalWalk := func(oid string) map[string]gosnmp.SnmpPDU {
+		if walkErr != nil {
+			return nil
+		}
+		m, err := walkMap(g, oid)
+		if err != nil && !errors.Is(err, errSNMPEmpty) {
+			log.Printf("[%s] %v", host, err)
+			walkErr = err
+			return nil
+		}
+		return m
+	}
+
+	wlAp := optionalWalk(".1.3.6.1.4.1.14988.1.1.1.3.1")   // wireless AP table
+	wlStat := optionalWalk(".1.3.6.1.4.1.14988.1.1.1.1.1") // wireless station table
+	wl60g := optionalWalk(".1.3.6.1.4.1.14988.1.1.1.8.1")  // wireless 60 GHz table
+
+	if walkErr != nil {
+		return SNMPReadResult{}, walkErr
+	}
 
 	// sort interfaces by index
 	indexes := make([]int, 0, len(ifIdxMap))

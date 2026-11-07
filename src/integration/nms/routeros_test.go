@@ -93,6 +93,12 @@ func TestGetRouterOSProvisionScriptCertificate(t *testing.T) {
 	}
 }
 
+func TestGetRouterOSProvisionScriptBadAddress(t *testing.T) {
+	if _, err := client("://no-scheme").GetRouterOSProvisionScript(RouterOSProvisionRequest{}); err == nil {
+		t.Error("no error from an address that is none")
+	}
+}
+
 func TestGetRouterOSProvisionScriptUnreachable(t *testing.T) {
 	nms := httptest.NewServer(http.NotFoundHandler())
 	url := nms.URL

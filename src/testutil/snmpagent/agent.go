@@ -24,13 +24,16 @@ type Agent struct {
 
 	// Everything below this OID is made up, without an end
 	endless string
+
+	// Requests for this OID and below it get no answer
+	silent string
 }
 
 // Start serves the given values until the test ends. Names are numeric OIDs with a leading dot.
 func Start(t testing.TB, community string, values []gosnmp.SnmpPDU) *Agent {
 	t.Helper()
 
-	return start(t, community, values, "")
+	return start(t, community, values, "", "")
 }
 
 // StartEndless serves the values like Start and under base keeps making up ever higher OIDs, like a responder out to
@@ -38,10 +41,18 @@ func Start(t testing.TB, community string, values []gosnmp.SnmpPDU) *Agent {
 func StartEndless(t testing.TB, community string, values []gosnmp.SnmpPDU, base string) *Agent {
 	t.Helper()
 
-	return start(t, community, values, base)
+	return start(t, community, values, base, "")
 }
 
-func start(t testing.TB, community string, values []gosnmp.SnmpPDU, endless string) *Agent {
+// StartSilentOn serves the values like Start and does not answer for anything under base, like a device that stalls
+// on one table.
+func StartSilentOn(t testing.TB, community string, values []gosnmp.SnmpPDU, base string) *Agent {
+	t.Helper()
+
+	return start(t, community, values, "", base)
+}
+
+func start(t testing.TB, community string, values []gosnmp.SnmpPDU, endless, silent string) *Agent {
 	t.Helper()
 
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -55,6 +66,7 @@ func start(t testing.TB, community string, values []gosnmp.SnmpPDU, endless stri
 		conn:      conn,
 		values:    make(map[string]gosnmp.SnmpPDU, len(values)),
 		endless:   endless,
+		silent:    silent,
 	}
 	for _, v := range values {
 		a.values[v.Name] = v
@@ -79,7 +91,7 @@ func (a *Agent) serve() {
 		}
 
 		req, err := decoder.SnmpDecodePacket(buf[:n])
-		if err != nil || req.Community != a.community {
+		if err != nil || req.Community != a.community || a.isSilentOn(req) {
 			continue
 		}
 
@@ -97,6 +109,18 @@ func (a *Agent) serve() {
 		}
 		_, _ = a.conn.WriteTo(out, peer)
 	}
+}
+
+func (a *Agent) isSilentOn(req *gosnmp.SnmpPacket) bool {
+	if a.silent == "" {
+		return false
+	}
+	for _, v := range req.Variables {
+		if v.Name == a.silent || strings.HasPrefix(v.Name, a.silent+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) answer(req *gosnmp.SnmpPacket) []gosnmp.SnmpPDU {

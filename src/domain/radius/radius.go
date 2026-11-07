@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2865"
+	"layeh.com/radius/rfc3162"
+	"layeh.com/radius/rfc6911"
 )
 
 const (
@@ -41,6 +44,14 @@ type RadiusDisconnectOutput struct {
 	ErrorCauses []int  `json:"error_causes,omitempty"`
 }
 
+// setByFamily sets an address, which RADIUS keeps in a different attribute for each family.
+func setByFamily(pkt *radius.Packet, ip net.IP, setIPv4, setIPv6 func(*radius.Packet, net.IP) error) error {
+	if ip.To4() != nil {
+		return setIPv4(pkt, ip)
+	}
+	return setIPv6(pkt, ip)
+}
+
 // Disconnect sends a Disconnect-Request and reports the NAS's answer. No answer within the retries is a result
 // (Timeout), an error means a local failure such as an unresolvable NAS.
 func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, error) {
@@ -54,8 +65,7 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 		timeout = time.Duration(in.TimeoutMs) * time.Millisecond
 	}
 
-	addr := fmt.Sprintf("%s:%d", in.NASIP, port)
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	udpAddr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(in.NASIP, strconv.Itoa(port)))
 	if err != nil {
 		return RadiusDisconnectOutput{Success: false, Result: resultException}, err
 	}
@@ -72,14 +82,14 @@ func Disconnect(cfg Config, in RadiusDisconnectInput) (RadiusDisconnectOutput, e
 	}
 	if in.FramedIP != "" {
 		if ip := net.ParseIP(in.FramedIP); ip != nil {
-			if err := rfc2865.FramedIPAddress_Set(pkt, ip); err != nil {
+			if err := setByFamily(pkt, ip, rfc2865.FramedIPAddress_Set, rfc6911.FramedIPv6Address_Set); err != nil {
 				return RadiusDisconnectOutput{Success: false, Result: resultException}, err
 			}
 		}
 	}
 	if in.NASIP != "" {
 		if ip := net.ParseIP(in.NASIP); ip != nil {
-			if err := rfc2865.NASIPAddress_Set(pkt, ip); err != nil {
+			if err := setByFamily(pkt, ip, rfc2865.NASIPAddress_Set, rfc3162.NASIPv6Address_Set); err != nil {
 				return RadiusDisconnectOutput{Success: false, Result: resultException}, err
 			}
 		}

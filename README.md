@@ -164,6 +164,9 @@ Returns uptime and advertised capabilities (the names of the configured device t
 ```
 
 `host` may be a hostname; if it resolves to both families an IPv6 address is preferred.
+`count` times `timeout_ms` may be 120000 at most, more is a `400`. A request the agent could not
+send is not in `sent`; with none sent the answer is a `500` with `ping_failed`, which says nothing
+about the host.
 
 ### `POST /api/radius/disconnect`
 

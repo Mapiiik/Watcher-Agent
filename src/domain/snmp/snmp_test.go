@@ -242,6 +242,36 @@ func TestReadRouterOSFailsWithoutAnInterfaceTable(t *testing.T) {
 	}
 }
 
+// A device without wireless answers with nothing, which is no reason to fail.
+func TestReadRouterOSOfAWiredDevice(t *testing.T) {
+	a := snmpagent.Start(t, community, snmpagent.MinimalRouterOS("HE408XYZ123"))
+
+	res, err := ReadRouterOS(agentConfig(a), "127.0.0.1", community)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Interfaces) != 1 || res.Interfaces[0].SSID != nil {
+		t.Errorf("%+v", res.Interfaces)
+	}
+}
+
+// The NMS takes what a read leaves out for gone, so a table that did not answer must not look like an empty one.
+func TestReadRouterOSFailsWhenAWirelessTableDoesNotAnswer(t *testing.T) {
+	for _, table := range []string{
+		".1.3.6.1.4.1.14988.1.1.1.3.1",
+		".1.3.6.1.4.1.14988.1.1.1.1.1",
+		".1.3.6.1.4.1.14988.1.1.1.8.1",
+	} {
+		a := snmpagent.StartSilentOn(t, community, routerOS(t), table)
+		cfg := agentConfig(a)
+		cfg.Timeout = 50 * time.Millisecond
+
+		if res, err := ReadRouterOS(cfg, "127.0.0.1", community); err == nil {
+			t.Errorf("%s: read succeeded with %+v", table, res.Interfaces)
+		}
+	}
+}
+
 func checkText(t *testing.T, what string, got *string, want string) {
 	t.Helper()
 	if got == nil || *got != want {

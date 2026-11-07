@@ -2,7 +2,6 @@
 package icmpengine6
 
 import (
-	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -19,7 +18,6 @@ type Engine struct {
 	conn     *icmp.PacketConn
 	waiters  map[int]*waiter
 	refCount int
-	stopCh   chan struct{}
 }
 
 var (
@@ -48,8 +46,7 @@ func (e *Engine) Acquire() error {
 			return err
 		}
 		e.conn = conn
-		e.stopCh = make(chan struct{})
-		go e.readLoop()
+		go e.readLoop(conn)
 	}
 
 	e.refCount++
@@ -62,7 +59,6 @@ func (e *Engine) Release() {
 
 	e.refCount--
 	if e.refCount == 0 {
-		close(e.stopCh)
 		_ = e.conn.Close()
 		e.conn = nil
 	}
@@ -72,7 +68,8 @@ func (e *Engine) nextID() int {
 	return int(atomic.AddUint32(&globalID, 1) & 0xffff)
 }
 
-// Ping sends one echo request and waits for its reply, ok is false without an error when none comes in time.
+// Ping sends one echo request and waits for its reply. Without one in time, or with one that is not its own, ok is
+// false and there is no error: an error means the request did not go out.
 func (e *Engine) Ping(ip net.IP, seq int, timeout time.Duration) (time.Duration, bool, error) {
 	id := e.nextID()
 
@@ -113,11 +110,8 @@ func (e *Engine) Ping(ip net.IP, seq int, timeout time.Duration) (time.Duration,
 
 	select {
 	case r := <-w.ch:
-		if !r.from.Equal(ip) {
-			return 0, false, errors.New("reply from unexpected IP")
-		}
-		if r.seq != seq {
-			return 0, false, errors.New("seq mismatch")
+		if !r.from.Equal(ip) || r.seq != seq {
+			return 0, false, nil
 		}
 		return time.Since(start), true, nil
 

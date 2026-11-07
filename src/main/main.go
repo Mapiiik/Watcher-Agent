@@ -33,51 +33,60 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Channel to signal HTTPS serve loop exit
-	httpsStopped := make(chan struct{}, 1)
+	if err := run(appCfg, srvHTTP, srvHTTPS, sigChan); err != nil {
+		log.Fatalf("HTTPS server error: %v", err)
+	}
+	log.Println("Watcher Agent stopped gracefully")
+}
 
+// run serves until a signal comes, or until HTTPS stops by itself. Plain HTTP only redirects to it, so the agent has
+// nothing left to do then, and ending with the error lets Docker start it again.
+func run(cfg AppConfig, srvHTTP, srvHTTPS *http.Server, signals <-chan os.Signal) error {
 	// Start HTTP redirect server
 	go func() {
-		log.Printf("Watcher Agent listening HTTP on %s", appCfg.ListenHttp)
+		log.Printf("Watcher Agent listening HTTP on %s", cfg.ListenHttp)
 		if err := srvHTTP.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()
 
 	// Start HTTPS server
-	go func() {
-		defer func() { httpsStopped <- struct{}{} }()
+	httpsStopped := make(chan error, 1)
+	go func() { httpsStopped <- serveHTTPS(cfg, srvHTTPS) }()
 
-		if appCfg.UseProxyProtocol {
-			// Start HTTPS with PROXY protocol support
-			ln, err := net.Listen("tcp", srvHTTPS.Addr)
-			if err != nil {
-				log.Fatal(err)
-			}
-			proxyListener := newProxyListener(ln, appCfg.ProxyAllowCIDRs)
+	select {
+	case <-signals:
+		log.Println("Shutdown signal received")
+		shutdown(shutdownTimeout, srvHTTP, srvHTTPS)
+		return <-httpsStopped
 
-			log.Printf("Watcher Agent listening HTTPS on %s (PROXY protocol support enabled)", srvHTTPS.Addr)
-			if err := srvHTTPS.ServeTLS(proxyListener, "", ""); err != nil &&
-				!errors.Is(err, http.ErrServerClosed) &&
-				!errors.Is(err, net.ErrClosed) {
-				log.Printf("HTTPS server error: %v", err)
-			}
-		} else {
-			// Start HTTPS server without PROXY protocol support
-			log.Printf("Watcher Agent listening HTTPS on %s (PROXY protocol support disabled)", srvHTTPS.Addr)
-			if err := srvHTTPS.ListenAndServeTLS("", ""); err != nil &&
-				!errors.Is(err, http.ErrServerClosed) {
-				log.Printf("HTTPS server error: %v", err)
-			}
+	case err := <-httpsStopped:
+		shutdown(shutdownTimeout, srvHTTP, srvHTTPS)
+		return err
+	}
+}
+
+// serveHTTPS serves until the server is shut down, which is no error, or fails.
+func serveHTTPS(cfg AppConfig, srv *http.Server) error {
+	var err error
+
+	if cfg.UseProxyProtocol {
+		// Start HTTPS with PROXY protocol support
+		ln, listenErr := net.Listen("tcp", srv.Addr)
+		if listenErr != nil {
+			return listenErr
 		}
-	}()
 
-	// Graceful shutdown
-	<-sigChan
-	log.Println("Shutdown signal received")
+		log.Printf("Watcher Agent listening HTTPS on %s (PROXY protocol support enabled)", srv.Addr)
+		err = srv.ServeTLS(newProxyListener(ln, cfg.ProxyAllowCIDRs), "", "")
+	} else {
+		// Start HTTPS server without PROXY protocol support
+		log.Printf("Watcher Agent listening HTTPS on %s (PROXY protocol support disabled)", srv.Addr)
+		err = srv.ListenAndServeTLS("", "")
+	}
 
-	shutdown(shutdownTimeout, srvHTTP, srvHTTPS)
-
-	<-httpsStopped
-	log.Println("Watcher Agent stopped gracefully")
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
 }

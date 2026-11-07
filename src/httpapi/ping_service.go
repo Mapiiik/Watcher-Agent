@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"watcher-agent/src/infra/icmpengine4"
 	"watcher-agent/src/infra/icmpengine6"
 )
+
+// maxPingMs is what a ping may take when nothing answers, under the time the server gives a request.
+const maxPingMs = 120_000
 
 type PingService struct {
 	// prepared for future configuration options if needed
@@ -31,6 +35,11 @@ type PingReply struct {
 	RTTMinMs  float64 `json:"rtt_min_ms"`
 	RTTAvgMs  float64 `json:"rtt_avg_ms"`
 	RTTMaxMs  float64 `json:"rtt_max_ms"`
+}
+
+// echoSender is an ICMP engine, as far as a series of pings needs one.
+type echoSender interface {
+	Ping(net.IP, int, time.Duration) (time.Duration, bool, error)
 }
 
 func NewPingService() *PingService {
@@ -56,6 +65,16 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TimeoutMs <= 0 {
 		req.TimeoutMs = 800
+	}
+
+	if req.Count > maxPingMs/req.TimeoutMs {
+		httphelpers.WriteError(
+			w,
+			http.StatusBadRequest,
+			"bad_request",
+			fmt.Sprintf("'count' times 'timeout_ms' may be %d at most.", maxPingMs),
+		)
+		return
 	}
 
 	// Validate host (must be a valid IP address or resolvable hostname)
@@ -111,17 +130,38 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 	}
 	defer engine.Release()
 
+	reply, err := pingSeries(engine, ip, req.Count, time.Duration(req.TimeoutMs)*time.Millisecond)
+	if err != nil {
+		httphelpers.WriteError(
+			w,
+			http.StatusInternalServerError,
+			"ping_failed",
+			fmt.Sprintf("The ping could not be sent: %s", err),
+		)
+		return
+	}
+
+	httphelpers.WriteJSON(w, reply)
+}
+
+// pingSeries pings the address count times. A request that did not go out is not a lost packet and says nothing about
+// the host, so it counts for nothing, and with none sent there is only the error to tell.
+func pingSeries(engine echoSender, ip net.IP, count int, timeout time.Duration) (PingReply, error) {
 	var sent, recv int
 	var sum time.Duration
 	var minRTT, maxRTT time.Duration
+	var sendErr error
 
-	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	for seq := 0; seq < count; seq++ {
+		rtt, ok, err := engine.Ping(ip, seq, timeout)
+		if err != nil {
+			sendErr = err
+			continue
+		}
 
-	for seq := 0; seq < req.Count; seq++ {
 		sent++
 
-		rtt, ok, err := engine.Ping(ip, seq, timeout)
-		if err != nil || !ok {
+		if !ok {
 			continue
 		}
 
@@ -137,6 +177,10 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		sum += rtt
 	}
 
+	if sent == 0 {
+		return PingReply{}, sendErr
+	}
+
 	lost := sent - recv
 	lossPct := float64(lost) / float64(sent) * 100.0
 
@@ -147,7 +191,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		max = float64(maxRTT) / float64(time.Millisecond)
 	}
 
-	httphelpers.WriteJSON(w, PingReply{
+	return PingReply{
 		Reachable: recv > 0,
 		TargetIP:  ip.String(),
 		Sent:      sent,
@@ -157,5 +201,5 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		RTTMinMs:  min,
 		RTTAvgMs:  avg,
 		RTTMaxMs:  max,
-	})
+	}, nil
 }

@@ -9,6 +9,8 @@ import (
 
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2865"
+	"layeh.com/radius/rfc3162"
+	"layeh.com/radius/rfc6911"
 )
 
 const secret = "test-secret"
@@ -26,6 +28,12 @@ func startNAS(t *testing.T, code radius.Code, errorCauses ...uint32) *nas {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	return serveNAS(t, conn, code, errorCauses...)
+}
+
+func serveNAS(t *testing.T, conn net.PacketConn, code radius.Code, errorCauses ...uint32) *nas {
+	t.Helper()
 
 	n := &nas{port: conn.LocalAddr().(*net.UDPAddr).Port, requests: make(chan *radius.Packet, 4)}
 	server := &radius.PacketServer{
@@ -101,6 +109,38 @@ func TestDisconnectSendsOnlyWhatIsGiven(t *testing.T) {
 	for _, typ := range []radius.Type{rfc2865.UserName_Type, 44, rfc2865.FramedIPAddress_Type} {
 		if _, ok := req.Lookup(typ); ok {
 			t.Errorf("attribute %d sent although not given", typ)
+		}
+	}
+}
+
+func TestDisconnectOverIPv6(t *testing.T) {
+	conn, err := net.ListenPacket("udp", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 here: %v", err)
+	}
+	n := serveNAS(t, conn, codeDisconnectACK)
+
+	in := input(n.port)
+	in.NASIP, in.FramedIP = "::1", "2001:db8::2"
+
+	out, err := Disconnect(config, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Success {
+		t.Errorf("out = %+v", out)
+	}
+
+	req := <-n.requests
+	if got := rfc3162.NASIPv6Address_Get(req); !got.Equal(net.ParseIP("::1")) {
+		t.Errorf("NAS-IPv6-Address = %v", got)
+	}
+	if got := rfc6911.FramedIPv6Address_Get(req); !got.Equal(net.ParseIP("2001:db8::2")) {
+		t.Errorf("Framed-IPv6-Address = %v", got)
+	}
+	for _, typ := range []radius.Type{rfc2865.NASIPAddress_Type, rfc2865.FramedIPAddress_Type} {
+		if _, ok := req.Lookup(typ); ok {
+			t.Errorf("IPv4 attribute %d sent for an IPv6 address", typ)
 		}
 	}
 }
