@@ -38,8 +38,7 @@ func RemoveFromAccessList(s *Session, mac string) ([]AccessListEntry, error) {
 
 	for _, menu := range accessListMenus {
 		rows, err := s.Run(menu+"/print", "?mac-address="+mac, "=.proplist=.id,interface,mac-address")
-		// a menu the router lacks answers with an error instead of entries
-		if errors.Is(err, ErrCommandFailed) {
+		if errors.Is(err, ErrNoSuchMenu) {
 			continue
 		}
 		if err != nil {

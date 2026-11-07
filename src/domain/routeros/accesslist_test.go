@@ -2,7 +2,9 @@ package routeros
 
 import (
 	"bytes"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"watcher-agent/src/testutil/routerosapi"
@@ -31,6 +33,25 @@ func TestRemoveFromAccessList(t *testing.T) {
 	}
 	if !slices.Contains(router.Commands(), "/interface/wifiwave2/access-list/print") {
 		t.Errorf("the last menu was not tried: %v", router.Commands())
+	}
+}
+
+// Only a menu the router lacks is passed over, a refused print says nothing about what is on the list.
+func TestRemoveFromAccessListStopsAtARefusedPrint(t *testing.T) {
+	router := tlsRouter(t, routerosapi.SelfSigned(t), map[string][]map[string]string{
+		"/interface/wifi/access-list": {
+			{"interface": "wifi1", "mac-address": "AA:BB:CC:DD:EE:FF"},
+		},
+	})
+	router.Fail("/interface/wifi/access-list/print", "not enough permissions (9)")
+
+	removed, err := RemoveFromAccessList(openOn(t, router), "AA:BB:CC:DD:EE:FF")
+
+	if !errors.Is(err, ErrCommandFailed) || !strings.Contains(err.Error(), "not enough permissions") {
+		t.Errorf("err = %v", err)
+	}
+	if len(removed) != 0 {
+		t.Errorf("%+v", removed)
 	}
 }
 

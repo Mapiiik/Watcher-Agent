@@ -154,6 +154,20 @@ func TestHandleAccessListRemove(t *testing.T) {
 	}
 }
 
+func TestHandleAccessListRemoveRefusedPrint(t *testing.T) {
+	router := routerOSRouter(t)
+	router.Fail("/interface/wireless/access-list/print", "not enough permissions (9)")
+
+	rec := httptest.NewRecorder()
+	NewRouterOSService(routerOSConfig(router.Port)).HandleAccessListRemove(rec, httptest.NewRequest("POST", "/", jsonBody(
+		`{"host":"127.0.0.1","mac_address":"aa:bb:cc:dd:ee:ff"}`,
+	)))
+
+	if rec.Code != http.StatusBadGateway || errorCode(t, rec) != "routeros_command_failed" {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRouterOSFailures(t *testing.T) {
 	router := routerOSRouter(t)
 	router.Fail("/ip/firewall/address-list/remove", "failure: item is in use")

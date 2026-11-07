@@ -171,6 +171,18 @@ func TestSyncAddressListWithoutIPv6(t *testing.T) {
 	}
 }
 
+// With nothing to write for IPv6 only a missing menu is fine, the list may still hold what a sync has to remove.
+func TestSyncAddressListStopsAtARefusedPrint(t *testing.T) {
+	router := debtorsRouter(t, true)
+	router.Fail(ipv6List+"/print", "not enough permissions (9)")
+
+	_, err := SyncAddressList(openOn(t, router), "debtors", mustEntries(t, Entry{Address: "192.0.2.1", Comment: "A"}))
+
+	if !errors.Is(err, ErrCommandFailed) || !strings.Contains(err.Error(), "not enough permissions") {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestAddToAddressListLeavesTheRest(t *testing.T) {
 	router := debtorsRouter(t, true)
 

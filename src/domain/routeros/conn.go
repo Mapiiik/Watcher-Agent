@@ -20,6 +20,9 @@ import (
 const (
 	TransportTLS   = "api-ssl"
 	TransportPlain = "api"
+
+	// What RouterOS 6 and 7 answer for a menu they do not have
+	noSuchMenuMessage = "no such command prefix"
 )
 
 var (
@@ -27,6 +30,10 @@ var (
 	ErrLoginFailed        = errors.New("the router refused the login")
 	ErrCertificateInvalid = errors.New("the router's certificate is not signed by the configured CA")
 	ErrCommandFailed      = errors.New("the router refused a command")
+
+	// ErrNoSuchMenu is ErrCommandFailed for a menu the router does not have. Every other refusal, such as a missing
+	// permission, says nothing about what is on the router.
+	ErrNoSuchMenu = fmt.Errorf("%w", ErrCommandFailed)
 )
 
 // Session is one logged-in connection to a device.
@@ -76,7 +83,11 @@ func (s *Session) Run(words ...string) ([]map[string]string, error) {
 	if err != nil {
 		var deviceErr *routeros.DeviceError
 		if errors.As(err, &deviceErr) {
-			return nil, fmt.Errorf("%w: %s: %s", ErrCommandFailed, words[0], message(deviceErr))
+			reason := ErrCommandFailed
+			if message(deviceErr) == noSuchMenuMessage {
+				reason = ErrNoSuchMenu
+			}
+			return nil, fmt.Errorf("%w: %s: %s", reason, words[0], message(deviceErr))
 		}
 		return nil, fmt.Errorf("%w: %s: %v", ErrUnreachable, words[0], err)
 	}

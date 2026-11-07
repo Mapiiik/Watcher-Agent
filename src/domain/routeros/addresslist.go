@@ -142,7 +142,7 @@ func writeFamily(s *Session, fam, list string, entries []Entry, removeOthers boo
 	rows, err := printList(s, menu, list)
 	if err != nil {
 		// A router without IPv6 has no such menu, which matters only when something is to be written there
-		if len(entries) == 0 && errors.Is(err, ErrCommandFailed) {
+		if len(entries) == 0 && errors.Is(err, ErrNoSuchMenu) {
 			return nil
 		}
 		return err
