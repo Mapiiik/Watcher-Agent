@@ -26,12 +26,6 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
   watchtower:
     image: nickfedor/watchtower:latest
     restart: unless-stopped
