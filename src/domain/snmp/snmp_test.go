@@ -363,7 +363,7 @@ func TestWalkStopsOverTheLimitOnBytes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = g.Conn.Close() })
 
-	m, err := walkMapWithin(g, ".1.3.6.1.2.1.2.2.1.1", walkValueLimit, 1_000)
+	m, _, err := walkMapWithin(g, ".1.3.6.1.2.1.2.2.1.1", walkValueLimit, 1_000)
 
 	if !errors.Is(err, errTooManyValues) || m != nil {
 		t.Errorf("%d values, %v", len(m), err)
@@ -390,5 +390,52 @@ func TestReadRouterOSStopsAtTheDeadline(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the read went on past its deadline")
+	}
+}
+
+// The walks of one read share one budget: tables that fit one by one but not together stop the read.
+func TestReadRouterOSKeepsToOneBudget(t *testing.T) {
+	a := snmpagent.Start(t, community, routerOS(t))
+	if _, err := ReadRouterOS(agentConfig(a), "127.0.0.1", community); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := snmpSession(context.Background(), agentConfig(a), "127.0.0.1", community)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Conn.Close() })
+	_, first, err := walkMapWithin(g, ".1.3.6.1.2.1.2.2.1.1", walkValueLimit, walkByteLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func(limit int) { readByteLimit = limit }(readByteLimit)
+	readByteLimit = first + 1
+	if _, err := ReadRouterOS(agentConfig(a), "127.0.0.1", community); !errors.Is(err, errTooManyValues) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// With every read taken the next one waits, and gives up only when its time is over.
+func TestReadsBeyondTheSlotsWait(t *testing.T) {
+	for range maxConcurrentReads {
+		readSlots <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for len(readSlots) > 0 {
+			<-readSlots
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := takeReadSlot(ctx); !errors.Is(err, errBusy) {
+		t.Errorf("err = %v", err)
+	}
+
+	<-readSlots
+	if err := takeReadSlot(context.Background()); err != nil {
+		t.Errorf("err = %v", err)
 	}
 }

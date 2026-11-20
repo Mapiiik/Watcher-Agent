@@ -32,7 +32,20 @@ const walkValueLimit = 50_000
 // on its own, so a router with 50 000 PPPoE interfaces under the longest names takes about 15 MB of this.
 const walkByteLimit = 64 << 20
 
-var errTooManyValues = errors.New("too many values")
+// readByteLimit bounds what all walks of one read keep together, the biggest router takes a fraction of it. A
+// variable only for the tests.
+var readByteLimit = 256 << 20
+
+// maxConcurrentReads bounds the full reads at once, and with readByteLimit what they keep. The NMS reads a device
+// when somebody asks for it and provisioning when a device calls, so the next read hardly ever waits.
+const maxConcurrentReads = 8
+
+var (
+	errTooManyValues = errors.New("too many values")
+	errBusy          = errors.New("too many SNMP reads at once")
+
+	readSlots = make(chan struct{}, maxConcurrentReads)
+)
 
 // SNMPDevice is the system part of a read, pointer fields are nil when the device lacks the value.
 type SNMPDevice struct {
@@ -123,10 +136,12 @@ func snmpGetText(g *gosnmp.GoSNMP, oid string) (*string, error) {
 }
 
 func walkMap(g *gosnmp.GoSNMP, baseOID string) (map[string]gosnmp.SnmpPDU, error) {
-	return walkMapWithin(g, baseOID, walkValueLimit, walkByteLimit)
+	m, _, err := walkMapWithin(g, baseOID, walkValueLimit, walkByteLimit)
+	return m, err
 }
 
-func walkMapWithin(g *gosnmp.GoSNMP, baseOID string, valueLimit, byteLimit int) (map[string]gosnmp.SnmpPDU, error) {
+// walkMapWithin walks the table up to the limits and tells how many bytes of them the values it returns take.
+func walkMapWithin(g *gosnmp.GoSNMP, baseOID string, valueLimit, byteLimit int) (map[string]gosnmp.SnmpPDU, int, error) {
 	for i := 0; i < snmpAttempts; i++ {
 		out := make(map[string]gosnmp.SnmpPDU)
 		size := 0
@@ -146,22 +161,22 @@ func walkMapWithin(g *gosnmp.GoSNMP, baseOID string, valueLimit, byteLimit int) 
 
 		// Another attempt would only fetch the same again
 		if errors.Is(err, errTooManyValues) {
-			return nil, fmt.Errorf("SNMP walk stopped for %s: %w (over %d or %d bytes)", baseOID, err, valueLimit, byteLimit)
+			return nil, 0, fmt.Errorf("SNMP walk stopped for %s: %w (over %d or %d bytes)", baseOID, err, valueLimit, byteLimit)
 		}
 
 		if err == nil && len(out) > 0 {
-			return out, nil
+			return out, size, nil
 		}
 
 		if i == snmpAttempts-1 {
 			if err != nil {
-				return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, err)
+				return out, size, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, err)
 			}
-			return out, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, errSNMPEmpty)
+			return out, size, fmt.Errorf("SNMP walk failed after %d attempts for %s: %w", snmpAttempts, baseOID, errSNMPEmpty)
 		}
 	}
 
-	return nil, fmt.Errorf("SNMP walk failed for %s", baseOID)
+	return nil, 0, fmt.Errorf("SNMP walk failed for %s", baseOID)
 }
 
 // pduSize is what keeping a value takes, its name and its text.
@@ -233,7 +248,22 @@ func ReadRouterOS(cfg Config, host, community string) (SNMPReadResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ReadTimeLimit)
 	defer cancel()
 
+	if err := takeReadSlot(ctx); err != nil {
+		return SNMPReadResult{}, err
+	}
+	defer func() { <-readSlots }()
+
 	return readRouterOS(ctx, cfg, host, community)
+}
+
+// takeReadSlot waits for a free read, the wait counting into the time of the read.
+func takeReadSlot(ctx context.Context) error {
+	select {
+	case readSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %d running", errBusy, maxConcurrentReads)
+	}
 }
 
 func readRouterOS(ctx context.Context, cfg Config, host, community string) (SNMPReadResult, error) {
@@ -283,6 +313,14 @@ func readRouterOS(ctx context.Context, cfg Config, host, community string) (SNMP
 		},
 	}
 
+	// Every walk takes from one budget, so that the read is bounded as a whole and not only table by table
+	left := readByteLimit
+	walk := func(oid string) (map[string]gosnmp.SnmpPDU, error) {
+		m, used, err := walkMapWithin(g, oid, walkValueLimit, min(walkByteLimit, left))
+		left -= used
+		return m, err
+	}
+
 	// requireWalk is used for standard MIB tables that must be present on any
 	// RouterOS device. The first failure short-circuits remaining calls and the
 	// accumulated error is checked once before processing continues.
@@ -291,7 +329,7 @@ func readRouterOS(ctx context.Context, cfg Config, host, community string) (SNMP
 		if walkErr != nil {
 			return nil
 		}
-		m, err := walkMap(g, oid)
+		m, err := walk(oid)
 		if err != nil {
 			log.Printf("[%s] %v", host, err)
 			walkErr = err
@@ -321,7 +359,7 @@ func readRouterOS(ctx context.Context, cfg Config, host, community string) (SNMP
 		if walkErr != nil {
 			return nil
 		}
-		m, err := walkMap(g, oid)
+		m, err := walk(oid)
 		if err != nil && !errors.Is(err, errSNMPEmpty) {
 			log.Printf("[%s] %v", host, err)
 			walkErr = err
