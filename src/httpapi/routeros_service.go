@@ -104,7 +104,7 @@ func (s *RouterOSService) HandleAccessListRemove(w http.ResponseWriter, r *http.
 		return
 	}
 
-	who := []any{"client", remoteIP(r), "host", in.Host, "mac", mac}
+	who := []any{"client", remoteIP(r), "caller", httphelpers.Caller(r), "host", in.Host, "mac", mac}
 
 	session, err := routeros.Open(s.cfg, in.Host)
 	if err != nil {
@@ -164,7 +164,7 @@ func (s *RouterOSService) runAddressList(
 	op, host, list string,
 	run func(*routeros.Session) (routeros.Changes, error),
 ) {
-	who := []any{"client", remoteIP(r), "op", op, "host", host, "list", list}
+	who := []any{"client", remoteIP(r), "caller", httphelpers.Caller(r), "op", op, "host", host, "list", list}
 
 	session, err := routeros.Open(s.cfg, host)
 	if err != nil {

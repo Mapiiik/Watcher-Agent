@@ -15,7 +15,7 @@ import (
 
 func handler() http.Handler {
 	return newHandler(
-		AppConfig{APIToken: "api-token", AgentID: "agent-7", RouterOSAllowCIDRs: []string{"10.0.0.0/8"}},
+		AppConfig{APIAccess: []APIAccess{{Name: "default", Token: "api-token"}}, AgentID: "agent-7", RouterOSAllowCIDRs: []string{"10.0.0.0/8"}},
 		radius.Config{Port: 3799, Timeout: time.Second},
 		snmp.Config{Port: 161, Timeout: 50 * time.Millisecond},
 		nms.Config{BaseURL: "http://127.0.0.1:1", Token: "nms-token", Timeout: time.Second},

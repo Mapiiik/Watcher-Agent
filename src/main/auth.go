@@ -19,11 +19,16 @@ func secureEqual(a, b string) bool {
 // maxBodyBytes bounds what a caller of the API may send; the debtors of a whole network fit in it many times.
 const maxBodyBytes = 8 << 20
 
+// bearerAuth lets through a request with the key of an access, marked with the name of the access for the log.
 func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := strings.TrimSpace(r.Header.Get("Authorization"))
 		token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-		if !strings.HasPrefix(h, "Bearer ") || !secureEqual(token, appCfg.APIToken) {
+		caller := ""
+		if strings.HasPrefix(h, "Bearer ") {
+			caller = callerOf(appCfg.APIAccess, token)
+		}
+		if caller == "" {
 			slog.Warn("API request refused", "client", clientIP(r), "path", r.URL.Path, "reason", "invalid or missing token")
 			httphelpers.WriteError(
 				w,
@@ -34,8 +39,19 @@ func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, httphelpers.WithCaller(r, caller))
 	})
+}
+
+// callerOf is the name of the first access with the token, empty for none. Every key is compared, in constant time.
+func callerOf(access []APIAccess, token string) string {
+	name := ""
+	for _, a := range access {
+		if secureEqual(token, a.Token) && name == "" {
+			name = a.Name
+		}
+	}
+	return name
 }
 
 func ipAllowed(remoteIP string, cidrs []string) bool {

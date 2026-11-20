@@ -91,7 +91,8 @@ All configuration is via environment variables (see [.env.example](.env.example)
 
 | Variable | Required | Default | Description |
 | --- | :---: | --- | --- |
-| `AGENT_API_TOKEN` | ✅ | — | Bearer token for the `/api/*` endpoints. |
+| `AGENT_API_ACCESS_JSON` | ✅¹ | _(empty)_ | Who may call `/api/*`: `[{"name":"crm","token":"…"},{"name":"nms","token":"…"}]`. The name goes into the log of every change. Callers may share a token until each has one of its own; the first with it then names them all. A list that is not one stops the agent from starting. |
+| `AGENT_API_TOKEN` | ✅¹ | — | A Bearer token for `/api/*` as before the list, which joins it as the caller `default`. ¹ One of the two is needed. |
 | `AGENT_NMS_BASE_URL` | ✅ | — | Base URL of the NMS used for provisioning. |
 | `AGENT_NMS_TOKEN` | ✅ | — | Bearer token the agent uses when calling the NMS. |
 | `AGENT_NMS_VERIFY_TLS` | | `true` | `false` only against a development NMS with a certificate of its own. |
@@ -135,7 +136,8 @@ for a given device type:
 
 ## API reference
 
-All `/api/*` endpoints require `Authorization: Bearer <AGENT_API_TOKEN>` and return JSON.
+All `/api/*` endpoints require `Authorization: Bearer <token>` with a token of `AGENT_API_ACCESS_JSON` or
+`AGENT_API_TOKEN`, and return JSON.
 Errors use `{ "error": "<code>", "message": "<text>" }`.
 
 ### `GET /` &nbsp;·&nbsp; health (no auth)

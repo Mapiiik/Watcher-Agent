@@ -55,7 +55,7 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 
 	// The secret never goes into the log
 	who := []any{
-		"client", remoteIP(r), "nas", in.NASIP, "username", in.UserName,
+		"client", remoteIP(r), "caller", httphelpers.Caller(r), "nas", in.NASIP, "username", in.UserName,
 		"session", in.AcctSessionID, "framed_ip", in.FramedIP,
 	}
 

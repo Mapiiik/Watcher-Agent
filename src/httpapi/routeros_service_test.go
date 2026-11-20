@@ -222,10 +222,10 @@ func TestRouterOSChangesAreLogged(t *testing.T) {
 	)))
 
 	mustLog(t, logged, []string{
-		`INFO RouterOS address list changed client=192.0.2.1 op=sync host=127.0.0.1 list=debtors transport=api-ssl ` +
+		`INFO RouterOS address list changed client=192.0.2.1 caller="" op=sync host=127.0.0.1 list=debtors transport=api-ssl ` +
 			`added=192.0.2.2 updated="" removed=192.0.2.1 unchanged=0`,
-		`INFO RouterOS access list changed client=192.0.2.1 host=127.0.0.1 mac=AA:BB:CC:DD:EE:FF transport=api-ssl removed=1`,
-		`WARN RouterOS address list not changed client=192.0.2.1 op=remove host=127.0.0.1 list=debtors error=`,
+		`INFO RouterOS access list changed client=192.0.2.1 caller="" host=127.0.0.1 mac=AA:BB:CC:DD:EE:FF transport=api-ssl removed=1`,
+		`WARN RouterOS address list not changed client=192.0.2.1 caller="" op=remove host=127.0.0.1 list=debtors error=`,
 	}, "1002 - B", "1001 - A")
 }
 

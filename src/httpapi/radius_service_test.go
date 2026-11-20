@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"watcher-agent/src/domain/radius"
+	"watcher-agent/src/httphelpers"
 )
 
 func TestHandleDisconnectBadRequest(t *testing.T) {
@@ -32,13 +33,13 @@ func TestHandleDisconnectFailure(t *testing.T) {
 	svc := NewRadiusService(radius.Config{Port: 3799, Timeout: time.Second})
 
 	rec := httptest.NewRecorder()
-	svc.HandleDisconnect(rec, httptest.NewRequest("POST", "/api/radius/disconnect",
-		jsonBody(`{"nas_ip":"nas.invalid","secret":"shared-secret","username":"customer"}`)))
+	svc.HandleDisconnect(rec, httphelpers.WithCaller(httptest.NewRequest("POST", "/api/radius/disconnect",
+		jsonBody(`{"nas_ip":"nas.invalid","secret":"shared-secret","username":"customer"}`)), "crm"))
 
 	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal_error" {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
 	mustLog(t, logged, []string{
-		`WARN RADIUS disconnect failed client=192.0.2.1 nas=nas.invalid username=customer session="" framed_ip="" error=`,
+		`WARN RADIUS disconnect failed client=192.0.2.1 caller=crm nas=nas.invalid username=customer session="" framed_ip="" error=`,
 	}, "shared-secret")
 }

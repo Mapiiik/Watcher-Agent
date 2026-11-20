@@ -12,7 +12,7 @@ import (
 var agentEnv = []string{
 	"AGENT_LISTEN_HTTP", "AGENT_LISTEN_HTTPS", "AGENT_USE_PROXY_PROTOCOL", "AGENT_PROXY_ALLOW_CIDRS",
 	"AGENT_HOSTNAME", "AGENT_CERT_DIR",
-	"AGENT_API_TOKEN", "AGENT_ID", "AGENT_ROUTEROS_ALLOW_CIDRS", "AGENT_ROUTEROS_QUERY_TOKEN",
+	"AGENT_API_TOKEN", "AGENT_API_ACCESS_JSON", "AGENT_ID", "AGENT_ROUTEROS_ALLOW_CIDRS", "AGENT_ROUTEROS_QUERY_TOKEN",
 	"AGENT_DEVICE_TYPES_JSON", "AGENT_ICMP", "AGENT_SNMP_PORT", "AGENT_SNMP_TIMEOUT_MS", "AGENT_SNMP_RETRIES",
 	"AGENT_RADIUS_PORT", "AGENT_RADIUS_TIMEOUT_MS", "AGENT_RADIUS_RETRIES", "AGENT_NMS_BASE_URL", "AGENT_NMS_TOKEN",
 	"AGENT_NMS_VERIFY_TLS",
@@ -52,8 +52,8 @@ func TestLoadAppConfigDefaults(t *testing.T) {
 	if cfg.Hostname != "" || cfg.CertDir != "./certs" || cfg.AgentID != "agent-1" {
 		t.Errorf("hostname %q, cert dir %q, agent %q", cfg.Hostname, cfg.CertDir, cfg.AgentID)
 	}
-	if cfg.APIToken != "api-token" {
-		t.Errorf("API token = %q, want it trimmed", cfg.APIToken)
+	if len(cfg.APIAccess) != 1 || cfg.APIAccess[0] != (APIAccess{Name: "default", Token: "api-token"}) {
+		t.Errorf("API access = %+v, want the token trimmed as default", cfg.APIAccess)
 	}
 	if !slices.Equal(cfg.RouterOSAllowCIDRs, []string{"0.0.0.0/0"}) || cfg.RouterOSQueryToken != "" {
 		t.Errorf("RouterOS access = %v %q", cfg.RouterOSAllowCIDRs, cfg.RouterOSQueryToken)
@@ -208,4 +208,35 @@ func TestLoadRouterOSAPIConfig(t *testing.T) {
 
 	t.Setenv("AGENT_ROUTEROS_API_CA_FINGERPRINT", "ab:cd")
 	mustPanic(t, "a fingerprint that is not one", func() { LoadRouterOSAPIConfig() })
+}
+
+// The callers of the API come from a list, the one token of before joins them as "default".
+func TestLoadAPIAccess(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("AGENT_API_ACCESS_JSON", `[{"name":"crm","token":" k1 "},{"name":"nms","token":"k1"}]`)
+	t.Setenv("AGENT_API_TOKEN", "k0")
+
+	access, err := loadAPIAccess()
+	want := []APIAccess{{"crm", "k1"}, {"nms", "k1"}, {"default", "k0"}}
+	if err != nil || !slices.Equal(access, want) {
+		t.Errorf("%+v, %v", access, err)
+	}
+
+	for name, value := range map[string]string{
+		"not JSON":     `{"crm":"k1"}`,
+		"without key":  `[{"name":"crm"}]`,
+		"without name": `[{"token":"k1"}]`,
+		"twice":        `[{"name":"crm","token":"k1"},{"name":"crm","token":"k2"}]`,
+	} {
+		t.Setenv("AGENT_API_ACCESS_JSON", value)
+		if _, err := loadAPIAccess(); err == nil {
+			t.Errorf("%s: taken", name)
+		}
+	}
+
+	t.Setenv("AGENT_API_ACCESS_JSON", "")
+	t.Setenv("AGENT_API_TOKEN", "")
+	if _, err := loadAPIAccess(); err == nil {
+		t.Error("no key at all taken")
+	}
 }

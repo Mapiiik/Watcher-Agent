@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"watcher-agent/src/httphelpers"
 )
 
 var ok = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +29,7 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func TestBearerAuth(t *testing.T) {
-	h := bearerAuth(AppConfig{APIToken: "api-token"}, ok)
+	h := bearerAuth(AppConfig{APIAccess: []APIAccess{{Name: "default", Token: "api-token"}}}, ok)
 
 	for header, want := range map[string]int{
 		"Bearer api-token":    http.StatusNoContent,
@@ -60,7 +62,7 @@ func TestBearerAuth(t *testing.T) {
 func TestBearerAuthBoundsTheBody(t *testing.T) {
 	var read int
 	var readErr error
-	h := bearerAuth(AppConfig{APIToken: "api-token"}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := bearerAuth(AppConfig{APIAccess: []APIAccess{{Name: "default", Token: "api-token"}}}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var b []byte
 		b, readErr = io.ReadAll(r.Body)
 		read = len(b)
@@ -145,7 +147,7 @@ func TestRefusalsAreLogged(t *testing.T) {
 
 	r := httptest.NewRequest("GET", "/api/status", nil)
 	r.Header.Set("Authorization", "Bearer guessed-token")
-	bearerAuth(AppConfig{APIToken: "api-token"}, ok).ServeHTTP(httptest.NewRecorder(), r)
+	bearerAuth(AppConfig{APIAccess: []APIAccess{{Name: "default", Token: "api-token"}}}, ok).ServeHTTP(httptest.NewRecorder(), r)
 
 	guard := routerOSGuard(AppConfig{RouterOSAllowCIDRs: []string{"10.0.0.0/8"}, RouterOSQueryToken: "q-token"}, ok)
 	r = httptest.NewRequest("GET", "/provision/routeros/router/HE408?token=guessed-query", nil)
@@ -165,6 +167,28 @@ func TestRefusalsAreLogged(t *testing.T) {
 	for _, secret := range []string{"guessed-token", "guessed-query"} {
 		if strings.Contains(logged.String(), secret) {
 			t.Errorf("the log holds %q", secret)
+		}
+	}
+}
+
+// Each access is let in with its own key and named in the request; a key shared is named by the first with it.
+func TestTheAccessOfAKeyIsNamed(t *testing.T) {
+	cfg := AppConfig{APIAccess: []APIAccess{
+		{Name: "crm", Token: "shared-key"}, {Name: "nms", Token: "shared-key"}, {Name: "watcher", Token: "own-key"},
+	}}
+	var caller string
+	h := bearerAuth(cfg, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caller = httphelpers.Caller(r)
+	}))
+
+	for token, want := range map[string]string{"shared-key": "crm", "own-key": "watcher", "other-key": ""} {
+		caller = ""
+		r := httptest.NewRequest("GET", "/api/status", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		if caller != want || (want == "") != (rec.Code == http.StatusUnauthorized) {
+			t.Errorf("%s: caller %q, status %d", token, caller, rec.Code)
 		}
 	}
 }

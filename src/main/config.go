@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -29,8 +31,8 @@ type AppConfig struct {
 	// Directory for the ACME certificates
 	CertDir string
 
-	// Bearer token for the API calls (status, ping, RADIUS, SNMP, RouterOS API) from Watcher, NMS and CRM
-	APIToken string
+	// Who may call the API (status, ping, RADIUS, SNMP, RouterOS API), each with a Bearer token of its own
+	APIAccess []APIAccess
 
 	// Agent identifier, sent to the NMS and shown in the answers
 	AgentID string
@@ -44,6 +46,44 @@ type AppConfig struct {
 
 	// Kind of ICMP socket to ping over
 	ICMP icmpsocket.Kind
+}
+
+// APIAccess is a caller of the API, Watcher CRM say: a name for the log and its key. Callers may share a key until
+// each gets one of its own; the first with a key then names them all.
+type APIAccess struct {
+	Name  string `json:"name"`
+	Token string `json:"token"`
+}
+
+// loadAPIAccess reads AGENT_API_ACCESS_JSON, a list of callers with their keys, and AGENT_API_TOKEN, the one key of
+// the agent before the list, which becomes a caller named "default". At least one key is needed.
+func loadAPIAccess() ([]APIAccess, error) {
+	var list []APIAccess
+	if raw := strings.TrimSpace(os.Getenv("AGENT_API_ACCESS_JSON")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &list); err != nil {
+			return nil, fmt.Errorf("bad AGENT_API_ACCESS_JSON: %w", err)
+		}
+	}
+	if token := strings.TrimSpace(os.Getenv("AGENT_API_TOKEN")); token != "" {
+		list = append(list, APIAccess{Name: "default", Token: token})
+	}
+
+	names := make(map[string]bool, len(list))
+	for i, a := range list {
+		a.Name, a.Token = strings.TrimSpace(a.Name), strings.TrimSpace(a.Token)
+		if a.Name == "" || a.Token == "" {
+			return nil, fmt.Errorf("bad AGENT_API_ACCESS_JSON: access %d needs a name and a token", i+1)
+		}
+		if names[a.Name] {
+			return nil, fmt.Errorf("bad AGENT_API_ACCESS_JSON: %q is there twice", a.Name)
+		}
+		names[a.Name] = true
+		list[i] = a
+	}
+	if len(list) == 0 {
+		return nil, errors.New("missing env: AGENT_API_ACCESS_JSON or AGENT_API_TOKEN")
+	}
+	return list, nil
 }
 
 func mustEnv(key string) string {
@@ -74,7 +114,7 @@ func envIntDefault(key string, def int) int {
 	return i
 }
 
-// LoadAppConfig panics without AGENT_API_TOKEN, with a broken AGENT_DEVICE_TYPES_JSON or an unknown AGENT_ICMP, so
+// LoadAppConfig panics without a key for the API, with a broken AGENT_DEVICE_TYPES_JSON or an unknown AGENT_ICMP, so
 // the agent never starts half configured.
 func LoadAppConfig() AppConfig {
 	deviceTypes := map[string]httpapi.DeviceTypeConfig{}
@@ -87,6 +127,10 @@ func LoadAppConfig() AppConfig {
 	if err != nil {
 		panic("bad AGENT_ICMP: " + err.Error())
 	}
+	access, err := loadAPIAccess()
+	if err != nil {
+		panic(err.Error())
+	}
 
 	return AppConfig{
 		ListenHttp:       envDefault("AGENT_LISTEN_HTTP", "0.0.0.0:80"),
@@ -98,8 +142,8 @@ func LoadAppConfig() AppConfig {
 		Hostname: envDefault("AGENT_HOSTNAME", ""),
 		CertDir:  envDefault("AGENT_CERT_DIR", "./certs"),
 
-		APIToken: mustEnv("AGENT_API_TOKEN"),
-		AgentID:  envDefault("AGENT_ID", "agent-1"),
+		APIAccess: access,
+		AgentID:   envDefault("AGENT_ID", "agent-1"),
 
 		RouterOSAllowCIDRs: strings.Fields(envDefault("AGENT_ROUTEROS_ALLOW_CIDRS", "0.0.0.0/0")),
 		RouterOSQueryToken: strings.TrimSpace(os.Getenv("AGENT_ROUTEROS_QUERY_TOKEN")),
