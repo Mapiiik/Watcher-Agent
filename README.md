@@ -168,7 +168,8 @@ Returns uptime and advertised capabilities (the names of the configured device t
 ```
 
 `host` may be a hostname; if it resolves to both families an IPv6 address is preferred.
-`count` times `timeout_ms` may be 120000 at most, more is a `400`. A request the agent could not
+`count` may be 100 at most, `timeout_ms` 100 at least and the two times each other 120000 at most;
+otherwise the answer is a `400`. A caller that closes the connection gets no more pings sent for it. A request the agent could not
 send is not in `sent`; with none sent the answer is a `500` with `ping_failed`, which says nothing
 about the host.
 

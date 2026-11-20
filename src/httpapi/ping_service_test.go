@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -34,9 +35,11 @@ func TestHandlePingUnresolvableHost(t *testing.T) {
 
 func TestHandlePingOverTheLimit(t *testing.T) {
 	for name, body := range map[string]string{
-		"too many":  `{"host":"cpe.invalid","count":241,"timeout_ms":500}`,
-		"too long":  `{"host":"cpe.invalid","count":1,"timeout_ms":120001}`,
-		"overflown": `{"host":"cpe.invalid","count":4294967296,"timeout_ms":4294967296}`,
+		"too many":        `{"host":"cpe.invalid","count":101,"timeout_ms":500}`,
+		"too short":       `{"host":"cpe.invalid","count":10,"timeout_ms":99}`,
+		"too long in all": `{"host":"cpe.invalid","count":100,"timeout_ms":1201}`,
+		"too long":        `{"host":"cpe.invalid","count":1,"timeout_ms":120001}`,
+		"overflown":       `{"host":"cpe.invalid","count":4294967296,"timeout_ms":4294967296}`,
 	} {
 		rec := httptest.NewRecorder()
 		NewPingService(icmpsocket.Auto).HandlePing(rec, httptest.NewRequest("POST", "/api/ping", jsonBody(body)))
@@ -51,7 +54,7 @@ func TestHandlePingOverTheLimit(t *testing.T) {
 func TestHandlePingUpToTheLimit(t *testing.T) {
 	rec := httptest.NewRecorder()
 	NewPingService(icmpsocket.Auto).HandlePing(rec, httptest.NewRequest("POST", "/api/ping", jsonBody(
-		`{"host":"cpe.invalid","count":240,"timeout_ms":500}`,
+		`{"host":"cpe.invalid","count":100,"timeout_ms":1200}`,
 	)))
 
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "host_resolution_failed" {
@@ -78,7 +81,7 @@ func (f *fakeEngine) Ping(net.IP, time.Duration) (time.Duration, bool, error) {
 func TestPingSeriesCountsLostPackets(t *testing.T) {
 	engine := fakeEngine{10 * time.Millisecond, nil, 30 * time.Millisecond, nil}
 
-	reply, err := pingSeries(&engine, net.IPv4(192, 0, 2, 1), 4, time.Second)
+	reply, err := pingSeries(context.Background(), &engine, net.IPv4(192, 0, 2, 1), 4, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +96,7 @@ func TestPingSeriesCountsLostPackets(t *testing.T) {
 func TestPingSeriesLeavesOutWhatWasNotSent(t *testing.T) {
 	engine := fakeEngine{10 * time.Millisecond, errors.New("no buffer space"), 30 * time.Millisecond}
 
-	reply, err := pingSeries(&engine, net.IPv4(192, 0, 2, 1), 3, time.Second)
+	reply, err := pingSeries(context.Background(), &engine, net.IPv4(192, 0, 2, 1), 3, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +110,7 @@ func TestPingSeriesWithNothingSentIsAnError(t *testing.T) {
 	cause := errors.New("network is unreachable")
 	engine := fakeEngine{cause, cause}
 
-	if reply, err := pingSeries(&engine, net.IPv4(192, 0, 2, 1), 2, time.Second); !errors.Is(err, cause) {
+	if reply, err := pingSeries(context.Background(), &engine, net.IPv4(192, 0, 2, 1), 2, time.Second); !errors.Is(err, cause) {
 		t.Errorf("%+v, %v", reply, err)
 	}
 }
@@ -115,7 +118,7 @@ func TestPingSeriesWithNothingSentIsAnError(t *testing.T) {
 func TestPingSeriesOfASilentHostIsNoError(t *testing.T) {
 	engine := fakeEngine{nil, nil}
 
-	reply, err := pingSeries(&engine, net.IPv4(192, 0, 2, 1), 2, time.Second)
+	reply, err := pingSeries(context.Background(), &engine, net.IPv4(192, 0, 2, 1), 2, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,4 +126,30 @@ func TestPingSeriesOfASilentHostIsNoError(t *testing.T) {
 	if reply.Reachable || reply.Sent != 2 || reply.Lost != 2 || reply.LossPct != 100 {
 		t.Errorf("%+v", reply)
 	}
+}
+
+// A caller that has gone gets no more pings sent for it.
+func TestPingSeriesStopsWhenTheCallerHasGone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := cancelling{cancel: cancel}
+
+	reply, err := pingSeries(ctx, &engine, net.IPv4(192, 0, 2, 1), 10, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.pings != 1 || reply.Sent != 1 || reply.Received != 1 {
+		t.Errorf("%d pings, %+v", engine.pings, reply)
+	}
+}
+
+// cancelling answers a ping and then the caller goes.
+type cancelling struct {
+	cancel context.CancelFunc
+	pings  int
+}
+
+func (c *cancelling) Ping(net.IP, time.Duration) (time.Duration, bool, error) {
+	c.pings++
+	c.cancel()
+	return time.Millisecond, true, nil
 }

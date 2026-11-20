@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,8 +13,13 @@ import (
 	"watcher-agent/src/infra/icmpsocket"
 )
 
-// maxPingMs is what a ping may take when nothing answers, under the time the server gives a request.
-const maxPingMs = 120_000
+const (
+	// maxPingMs is what a ping may take when nothing answers, under the time the server gives a request.
+	maxPingMs = 120_000
+	// maxPingCount and minPingTimeoutMs keep a series to what a check of a device needs; CRM sends 10 of 500 ms.
+	maxPingCount     = 100
+	minPingTimeoutMs = 100
+)
 
 // PingService pings over one ICMP socket for each address family, opened at start and kept.
 type PingService struct {
@@ -77,6 +83,16 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		req.TimeoutMs = 800
 	}
 
+	if req.Count > maxPingCount || req.TimeoutMs < minPingTimeoutMs {
+		httphelpers.WriteError(
+			w,
+			http.StatusBadRequest,
+			"bad_request",
+			fmt.Sprintf("'count' may be %d at most and 'timeout_ms' %d at least.", maxPingCount, minPingTimeoutMs),
+		)
+		return
+	}
+
 	if req.Count > maxPingMs/req.TimeoutMs {
 		httphelpers.WriteError(
 			w,
@@ -126,7 +142,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reply, err := pingSeries(pinger, ip, req.Count, time.Duration(req.TimeoutMs)*time.Millisecond)
+	reply, err := pingSeries(r.Context(), pinger, ip, req.Count, time.Duration(req.TimeoutMs)*time.Millisecond)
 	if err != nil {
 		httphelpers.WriteError(
 			w,
@@ -140,15 +156,19 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 	httphelpers.WriteJSON(w, reply)
 }
 
-// pingSeries pings the address count times. A request that did not go out is not a lost packet and says nothing about
-// the host, so it counts for nothing, and with none sent there is only the error to tell.
-func pingSeries(pinger echoSender, ip net.IP, count int, timeout time.Duration) (PingReply, error) {
+// pingSeries pings the address count times, and no more once the caller has gone. A request that did not go out is not
+// a lost packet and says nothing about the host, so it counts for nothing, and with none sent there is only the error to
+// tell.
+func pingSeries(ctx context.Context, pinger echoSender, ip net.IP, count int, timeout time.Duration) (PingReply, error) {
 	var sent, recv int
 	var sum time.Duration
 	var minRTT, maxRTT time.Duration
 	var sendErr error
 
 	for range count {
+		if ctx.Err() != nil {
+			break
+		}
 		rtt, ok, err := pinger.Ping(ip, timeout)
 		if err != nil {
 			sendErr = err
