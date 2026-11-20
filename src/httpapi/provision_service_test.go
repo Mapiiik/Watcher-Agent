@@ -62,6 +62,7 @@ func (p provisionSetup) get(path string) *httptest.ResponseRecorder {
 }
 
 func TestHandleRouterOS(t *testing.T) {
+	logged := captureLog(t)
 	p := newProvision(t, device(t, "HE408XYZ123"), http.StatusOK, `{"script":"/system identity set name=customer-1"}`)
 
 	rec := p.get("/provision/routeros/router/HE408XYZ123")
@@ -77,6 +78,7 @@ func TestHandleRouterOS(t *testing.T) {
 	if req.SNMP.Device.Serial != "HE408XYZ123" || len(req.SNMP.Interfaces) != 1 {
 		t.Errorf("NMS got SNMP %+v", req.SNMP)
 	}
+	mustLog(t, logged, []string{`INFO provisioning script handed over device=127.0.0.1 type=router serial=HE408XYZ123`})
 }
 
 // The caller has to know the serial already, an answer must not hand it over.
@@ -109,8 +111,12 @@ func TestHandleRouterOSFailures(t *testing.T) {
 	}
 
 	for _, c := range cases {
+		logged := captureLog(t)
 		p := newProvision(t, c.snmp, c.nmsStatus, `{"message":"down"}`)
 		rec := p.get(c.path)
+		if !strings.Contains(logged.String(), "WARN provisioning ") || !strings.Contains(logged.String(), c.want) {
+			t.Errorf("%s: log %q", c.name, logged.String())
+		}
 
 		body := rec.Body.String()
 		prefix := ":log error \"Watcher Agent: "

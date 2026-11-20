@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -130,6 +133,38 @@ func TestRouterOSGuard(t *testing.T) {
 		}
 		if c.want == http.StatusForbidden && errorCode(t, rec) != "forbidden" {
 			t.Errorf("%s: %s", c.name, rec.Body.String())
+		}
+	}
+}
+
+// Refusals are logged with the caller, the guessed token and query token are not.
+func TestRefusalsAreLogged(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	r := httptest.NewRequest("GET", "/api/status", nil)
+	r.Header.Set("Authorization", "Bearer guessed-token")
+	bearerAuth(AppConfig{APIToken: "api-token"}, ok).ServeHTTP(httptest.NewRecorder(), r)
+
+	guard := routerOSGuard(AppConfig{RouterOSAllowCIDRs: []string{"10.0.0.0/8"}, RouterOSQueryToken: "q-token"}, ok)
+	r = httptest.NewRequest("GET", "/provision/routeros/router/HE408?token=guessed-query", nil)
+	r.RemoteAddr = "10.1.2.3:4000"
+	guard.ServeHTTP(httptest.NewRecorder(), r)
+	guard.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/provision/routeros/router/HE408", nil))
+
+	for _, line := range []string{
+		`WARN API request refused client=192.0.2.1 path=/api/status reason="invalid or missing token"`,
+		`WARN provisioning refused client=10.1.2.3 path=/provision/routeros/router/HE408 reason="invalid or missing query token"`,
+		`WARN provisioning refused client=192.0.2.1 path=/provision/routeros/router/HE408 reason="address not allowed"`,
+	} {
+		if !strings.Contains(logged.String(), line) {
+			t.Errorf("the log lacks %q in %q", line, logged.String())
+		}
+	}
+	for _, secret := range []string{"guessed-token", "guessed-query"} {
+		if strings.Contains(logged.String(), secret) {
+			t.Errorf("the log holds %q", secret)
 		}
 	}
 }

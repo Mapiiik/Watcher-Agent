@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"watcher-agent/src/domain/radius"
@@ -52,8 +53,15 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// The secret never goes into the log
+	who := []any{
+		"client", remoteIP(r), "nas", in.NASIP, "username", in.UserName,
+		"session", in.AcctSessionID, "framed_ip", in.FramedIP,
+	}
+
 	out, err := radius.Disconnect(s.cfg, in)
 	if err != nil {
+		slog.Warn("RADIUS disconnect failed", append(who, "error", err)...)
 		httphelpers.WriteError(
 			w,
 			http.StatusInternalServerError,
@@ -63,5 +71,6 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	slog.Info("RADIUS disconnect", append(who, "result", out.Result)...)
 	httphelpers.WriteJSON(w, out)
 }

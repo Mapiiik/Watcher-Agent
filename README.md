@@ -332,6 +332,12 @@ On any failure the response is a RouterOS-runnable error line so the device logs
 
 ## Deployment notes
 
+- **Logs.** Every change and every refused request is one line on stderr with the caller's
+  address (the one from the PROXY header behind a proxy): RADIUS disconnects, address and
+  access list changes with the addresses changed, provisioning, and requests refused for a
+  token or an address, for example
+  `INFO RouterOS address list changed client=192.0.2.1 op=sync host=10.1.2.3 list=debtors transport=api-ssl added=… removed=…`.
+  RADIUS secrets, tokens and the comments of address lists never go in.
 - **Capabilities.** Binding to ports 80/443 needs `NET_BIND_SERVICE`. `/api/ping` needs
   `NET_RAW` only for a raw ICMP socket, see [ICMP sockets](#icmp-sockets). Both are granted
   in the provided compose files via `cap_add`.

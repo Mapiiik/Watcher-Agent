@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -31,8 +33,10 @@ func NewProvisionService(
 // serial over SNMP at the caller's address, sends the full read to the NMS and returns the NMS script. Every
 // failure is answered with a script that only logs it.
 func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request) {
+	host := remoteIP(r)
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) != 4 {
+		slog.Warn("provisioning refused", "device", host, "reason", "Invalid provisioning URL")
 		httphelpers.WriteRouterOSError(
 			w,
 			"Invalid provisioning URL",
@@ -42,18 +46,19 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 
 	deviceType := parts[2]
 	serialReq := parts[3]
+	who := []any{"device", host, "type", deviceType, "serial", serialReq}
+
+	// fail logs why and answers the device with a script that logs it there too
+	fail := func(format string, args ...any) {
+		slog.Warn("provisioning failed", append(who, "reason", fmt.Sprintf(format, args...))...)
+		httphelpers.WriteRouterOSError(w, format, args...)
+	}
 
 	dt, ok := s.cfg.DeviceTypes[deviceType]
 	if !ok || strings.TrimSpace(dt.Community) == "" {
-		httphelpers.WriteRouterOSError(
-			w,
-			"Unknown device type or missing community (%s)",
-			deviceType,
-		)
+		fail("Unknown device type or missing community (%s)", deviceType)
 		return
 	}
-
-	host := remoteIP(r)
 
 	// 1) Read serial only
 	serial, err := snmp.ReadRouterOSSerial(
@@ -62,21 +67,13 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		dt.Community,
 	)
 	if err != nil {
-		httphelpers.WriteRouterOSError(
-			w,
-			"SNMP serial read failed: %s",
-			err.Error(),
-		)
+		fail("SNMP serial read failed: %s", err.Error())
 		return
 	}
 
 	// 2) Serial check
 	if serial != serialReq {
-		httphelpers.WriteRouterOSError(
-			w,
-			"Serial mismatch (expected %s)",
-			serialReq,
-		)
+		fail("Serial mismatch (expected %s)", serialReq)
 		return
 	}
 
@@ -87,11 +84,7 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		dt.Community,
 	)
 	if err != nil {
-		httphelpers.WriteRouterOSError(
-			w,
-			"SNMP read failed: %s",
-			err.Error(),
-		)
+		fail("SNMP read failed: %s", err.Error())
 		return
 	}
 
@@ -106,15 +99,12 @@ func (s *ProvisionService) HandleRouterOS(w http.ResponseWriter, r *http.Request
 		},
 	)
 	if err != nil {
-		httphelpers.WriteRouterOSError(
-			w,
-			"NMS provision failed: %s",
-			err.Error(),
-		)
+		fail("NMS provision failed: %s", err.Error())
 		return
 	}
 
 	// 5) Return script to RouterOS
+	slog.Info("provisioning script handed over", who...)
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte(script))
 }

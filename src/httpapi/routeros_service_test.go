@@ -3,6 +3,7 @@ package httpapi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -199,5 +200,48 @@ func TestRouterOSFailures(t *testing.T) {
 		if rec.Code != tc.status || body["error"] != tc.code || !strings.Contains(body["message"], tc.says) {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// Every change and every failure is logged with who asked for it, without the comments, which name customers.
+func TestRouterOSChangesAreLogged(t *testing.T) {
+	logged := captureLog(t)
+	router := routerOSRouter(t)
+	svc := NewRouterOSService(routerOSConfig(router.Port))
+	elsewhere := routerOSConfig(router.Port)
+	elsewhere.AllowedTargets, _ = routeros.ParseTargets("10.0.0.0/8")
+
+	svc.HandleAddressListSync(httptest.NewRecorder(), httptest.NewRequest("POST", "/", jsonBody(
+		`{"host":"127.0.0.1","list":"debtors","entries":[{"address":"192.0.2.2","comment":"1002 - B"}]}`,
+	)))
+	svc.HandleAccessListRemove(httptest.NewRecorder(), httptest.NewRequest("POST", "/", jsonBody(
+		`{"host":"127.0.0.1","mac_address":"aa:bb:cc:dd:ee:ff"}`,
+	)))
+	NewRouterOSService(elsewhere).HandleAddressListRemove(httptest.NewRecorder(), httptest.NewRequest("POST", "/", jsonBody(
+		`{"host":"127.0.0.1","list":"debtors","addresses":["192.0.2.1"]}`,
+	)))
+
+	mustLog(t, logged, []string{
+		`INFO RouterOS address list changed client=192.0.2.1 op=sync host=127.0.0.1 list=debtors transport=api-ssl ` +
+			`added=192.0.2.2 updated="" removed=192.0.2.1 unchanged=0`,
+		`INFO RouterOS access list changed client=192.0.2.1 host=127.0.0.1 mac=AA:BB:CC:DD:EE:FF transport=api-ssl removed=1`,
+		`WARN RouterOS address list not changed client=192.0.2.1 op=remove host=127.0.0.1 list=debtors error=`,
+	}, "1002 - B", "1001 - A")
+}
+
+func TestAddressesForTheLog(t *testing.T) {
+	entries := make([]routeros.Entry, 52)
+	for i := range entries {
+		entries[i].Address = fmt.Sprintf("192.0.2.%d", i)
+	}
+
+	if got := addresses(entries[:2]); got != "192.0.2.0 192.0.2.1" {
+		t.Errorf("two = %q", got)
+	}
+	if got := addresses(entries); !strings.HasSuffix(got, "192.0.2.49 and 2 more") || strings.Contains(got, "192.0.2.50") {
+		t.Errorf("52 = %q", got)
+	}
+	if got := addresses(nil); got != "" {
+		t.Errorf("none = %q", got)
 	}
 }

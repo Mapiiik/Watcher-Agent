@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -23,6 +24,7 @@ func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
 		h := strings.TrimSpace(r.Header.Get("Authorization"))
 		token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 		if !strings.HasPrefix(h, "Bearer ") || !secureEqual(token, appCfg.APIToken) {
+			slog.Warn("API request refused", "client", clientIP(r), "path", r.URL.Path, "reason", "invalid or missing token")
 			httphelpers.WriteError(
 				w,
 				http.StatusUnauthorized,
@@ -50,14 +52,23 @@ func ipAllowed(remoteIP string, cidrs []string) bool {
 	return false
 }
 
+// clientIP is the address of the caller, the one in the PROXY header behind the proxy.
+func clientIP(r *http.Request) string {
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if host == "" {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// routerOSGuard lets provisioning in only from the allowed networks and with the query token, if there is one.
+// Refusals are logged by the path alone, the query holds the token.
 func routerOSGuard(appCfg AppConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if host == "" {
-			host = r.RemoteAddr
-		}
+		host := clientIP(r)
 
 		if !ipAllowed(host, appCfg.RouterOSAllowCIDRs) {
+			slog.Warn("provisioning refused", "client", host, "path", r.URL.Path, "reason", "address not allowed")
 			httphelpers.WriteError(
 				w,
 				http.StatusForbidden,
@@ -69,6 +80,7 @@ func routerOSGuard(appCfg AppConfig, next http.Handler) http.Handler {
 
 		if appCfg.RouterOSQueryToken != "" {
 			if !secureEqual(strings.TrimSpace(r.URL.Query().Get("token")), appCfg.RouterOSQueryToken) {
+				slog.Warn("provisioning refused", "client", host, "path", r.URL.Path, "reason", "invalid or missing query token")
 				httphelpers.WriteError(
 					w,
 					http.StatusForbidden,

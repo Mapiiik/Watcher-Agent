@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http/httptest"
 	"strings"
@@ -49,4 +51,28 @@ func TestRemoteIP(t *testing.T) {
 
 func jsonBody(s string) *strings.Reader {
 	return strings.NewReader(s)
+}
+
+// captureLog collects what the handlers log during the test.
+func captureLog(t *testing.T) *bytes.Buffer {
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return &buf
+}
+
+// mustLog fails the test for every line the log lacks and for every word it holds that it must not.
+func mustLog(t *testing.T, logged *bytes.Buffer, want []string, never ...string) {
+	t.Helper()
+	for _, line := range want {
+		if !strings.Contains(logged.String(), line) {
+			t.Errorf("the log lacks %q in %q", line, logged.String())
+		}
+	}
+	for _, word := range never {
+		if strings.Contains(logged.String(), word) {
+			t.Errorf("the log holds %q in %q", word, logged.String())
+		}
+	}
 }

@@ -28,13 +28,17 @@ func TestHandleDisconnectBadRequest(t *testing.T) {
 }
 
 func TestHandleDisconnectFailure(t *testing.T) {
+	logged := captureLog(t)
 	svc := NewRadiusService(radius.Config{Port: 3799, Timeout: time.Second})
 
 	rec := httptest.NewRecorder()
 	svc.HandleDisconnect(rec, httptest.NewRequest("POST", "/api/radius/disconnect",
-		jsonBody(`{"nas_ip":"nas.invalid","secret":"s"}`)))
+		jsonBody(`{"nas_ip":"nas.invalid","secret":"shared-secret","username":"customer"}`)))
 
 	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal_error" {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
+	mustLog(t, logged, []string{
+		`WARN RADIUS disconnect failed client=192.0.2.1 nas=nas.invalid username=customer session="" framed_ip="" error=`,
+	}, "shared-secret")
 }
