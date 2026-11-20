@@ -115,6 +115,7 @@ All configuration is via environment variables (see [.env.example](.env.example)
 | `AGENT_ROUTEROS_API_PASSWORD` | | _(empty)_ | Its password (not trimmed). |
 | `AGENT_ROUTEROS_API_PLAIN_FALLBACK` | | `false` | `true` allows the unencrypted `api` (8728) where `api-ssl` (8729) is refused or the router has no certificate. See [RouterOS API transport](#routeros-api-transport). |
 | `AGENT_ROUTEROS_API_CA_FINGERPRINT` | | _(empty)_ | SHA-256 of a CA certificate (hex, colons optional). Set: the router's certificate must be signed by this CA. Empty: encrypted without verification. A value that is not a fingerprint stops the agent from starting. |
+| `AGENT_ROUTEROS_API_ALLOW_CIDRS` | | _(empty)_ | Space-separated networks the agent may log in to (a bare address is a network of its own). The address is checked after a name is resolved; anything outside gets `403 routeros_target_not_allowed` and no connection at all. Empty: any address, and the agent logs a warning at start. A value that is not a network stops the agent from starting. Not the same as `AGENT_ROUTEROS_ALLOW_CIDRS`, which is who may call provisioning. |
 | `AGENT_ROUTEROS_API_TIMEOUT_MS` | | `5000` | Timeout for connecting and for each RouterOS API command. |
 
 `AGENT_DEVICE_TYPES_JSON` is consulted during provisioning to pick the SNMP community
@@ -280,6 +281,7 @@ Errors of the RouterOS endpoints:
 | --- | --- | --- |
 | 400 | `bad_request` | Unreadable JSON, a missing parameter, an address or MAC that is not one. |
 | 503 | `not_configured` | `AGENT_ROUTEROS_API_USERNAME` is empty. |
+| 403 | `routeros_target_not_allowed` | The host is outside `AGENT_ROUTEROS_API_ALLOW_CIDRS`; the agent did not connect. |
 | 502 | `routeros_unreachable` | No connection by any allowed way. |
 | 502 | `routeros_login_failed` | The device refused the login. |
 | 502 | `routeros_certificate_invalid` | A CA fingerprint is set and the device's certificate does not pass it. |
@@ -301,8 +303,10 @@ plain `api`. Every plain connection is logged with the reason:
 RouterOS API 192.0.2.1: plain api (no certificate for api-ssl)
 ```
 
-Without `AGENT_ROUTEROS_API_CA_FINGERPRINT` the certificate is not verified: the point is
-that the password does not travel in clear text. With it, the CA has to be in the chain the
+Without `AGENT_ROUTEROS_API_CA_FINGERPRINT` the certificate is not verified: nobody on the
+way reads the password, but whoever answers on the address does, encrypted or not. A caller
+with the API token could name a server of its own, so keep `AGENT_ROUTEROS_API_ALLOW_CIDRS`
+to the networks of the devices. With a fingerprint, the CA has to be in the chain the
 router sends and has to have signed the router's certificate. Neither the router's address
 nor its name is checked, as both change when devices are replaced or renumbered.
 

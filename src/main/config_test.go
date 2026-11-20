@@ -15,7 +15,7 @@ var agentEnv = []string{
 	"AGENT_RADIUS_PORT", "AGENT_RADIUS_TIMEOUT_MS", "AGENT_RADIUS_RETRIES", "AGENT_NMS_BASE_URL", "AGENT_NMS_TOKEN",
 	"AGENT_NMS_VERIFY_TLS",
 	"AGENT_ROUTEROS_API_USERNAME", "AGENT_ROUTEROS_API_PASSWORD", "AGENT_ROUTEROS_API_PLAIN_FALLBACK",
-	"AGENT_ROUTEROS_API_CA_FINGERPRINT", "AGENT_ROUTEROS_API_TIMEOUT_MS",
+	"AGENT_ROUTEROS_API_CA_FINGERPRINT", "AGENT_ROUTEROS_API_ALLOW_CIDRS", "AGENT_ROUTEROS_API_TIMEOUT_MS",
 }
 
 // cleanEnv empties every variable the agent reads; an empty value counts as not set.
@@ -165,8 +165,8 @@ func TestLoadRouterOSAPIConfig(t *testing.T) {
 	cleanEnv(t)
 
 	cfg := LoadRouterOSAPIConfig()
-	if cfg.Configured() || cfg.PlainFallback || cfg.CAFingerprint != nil || cfg.Timeout != 5*time.Second ||
-		cfg.TLSPort != 8729 || cfg.PlainPort != 8728 {
+	if cfg.Configured() || cfg.PlainFallback || cfg.CAFingerprint != nil || cfg.AllowedTargets != nil ||
+		cfg.Timeout != 5*time.Second || cfg.TLSPort != 8729 || cfg.PlainPort != 8728 {
 		t.Errorf("defaults = %+v", cfg)
 	}
 
@@ -174,13 +174,18 @@ func TestLoadRouterOSAPIConfig(t *testing.T) {
 	t.Setenv("AGENT_ROUTEROS_API_PASSWORD", " s3cret ")
 	t.Setenv("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "true")
 	t.Setenv("AGENT_ROUTEROS_API_CA_FINGERPRINT", strings.Repeat("ab:", 31)+"ab")
+	t.Setenv("AGENT_ROUTEROS_API_ALLOW_CIDRS", "10.16.0.0/12 192.0.2.1")
 	t.Setenv("AGENT_ROUTEROS_API_TIMEOUT_MS", "800")
 
 	cfg = LoadRouterOSAPIConfig()
 	if cfg.Username != "watcher-agent" || cfg.Password != " s3cret " || !cfg.PlainFallback ||
-		len(cfg.CAFingerprint) != 32 || cfg.Timeout != 800*time.Millisecond {
+		len(cfg.CAFingerprint) != 32 || len(cfg.AllowedTargets) != 2 || cfg.Timeout != 800*time.Millisecond {
 		t.Errorf("RouterOS API = %+v", cfg)
 	}
+
+	t.Setenv("AGENT_ROUTEROS_API_ALLOW_CIDRS", "10.16.0.0/12,192.0.2.1")
+	mustPanic(t, "networks separated by a comma", func() { LoadRouterOSAPIConfig() })
+	t.Setenv("AGENT_ROUTEROS_API_ALLOW_CIDRS", "")
 
 	// Only the exact value "true" lets the password go unencrypted
 	t.Setenv("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "1")

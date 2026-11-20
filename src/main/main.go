@@ -23,6 +23,9 @@ func main() {
 	snmpCfg := LoadSNMPConfig()
 	nmsCfg := LoadNMSConfig()
 	routerOSCfg := LoadRouterOSAPIConfig()
+	if routerOSCfg.Configured() && routerOSCfg.AllowedTargets == nil {
+		log.Println("WARNING: AGENT_ROUTEROS_API_ALLOW_CIDRS is not set, the RouterOS API logs in to any address a caller names")
+	}
 
 	// Plain HTTP only redirects to HTTPS
 	srvHTTP := newServer(appCfg.ListenHttp, httpsRedirect(appCfg.ListenHttps))

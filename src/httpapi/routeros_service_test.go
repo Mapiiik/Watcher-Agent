@@ -175,14 +175,19 @@ func TestRouterOSFailures(t *testing.T) {
 	wrongPassword := routerOSConfig(router.Port)
 	wrongPassword.Password = "wrong"
 
+	elsewhere := routerOSConfig(router.Port)
+	elsewhere.AllowedTargets, _ = routeros.ParseTargets("10.0.0.0/8")
+
 	for name, tc := range map[string]struct {
-		cfg  routeros.Config
-		code string
-		says string
+		cfg    routeros.Config
+		status int
+		code   string
+		says   string
 	}{
-		"unreachable":     {routerOSConfig(closedTCPPort(t)), "routeros_unreachable", "api-ssl"},
-		"login refused":   {wrongPassword, "routeros_login_failed", "invalid user name or password"},
-		"command refused": {routerOSConfig(router.Port), "routeros_command_failed", "done before it: 1 added"},
+		"unreachable":     {routerOSConfig(closedTCPPort(t)), http.StatusBadGateway, "routeros_unreachable", "api-ssl"},
+		"login refused":   {wrongPassword, http.StatusBadGateway, "routeros_login_failed", "invalid user name or password"},
+		"command refused": {routerOSConfig(router.Port), http.StatusBadGateway, "routeros_command_failed", "done before it: 1 added"},
+		"outside":         {elsewhere, http.StatusForbidden, "routeros_target_not_allowed", "127.0.0.1"},
 	} {
 		rec := httptest.NewRecorder()
 		NewRouterOSService(tc.cfg).HandleAddressListSync(rec, httptest.NewRequest("POST", "/", jsonBody(
@@ -191,7 +196,7 @@ func TestRouterOSFailures(t *testing.T) {
 
 		var body map[string]string
 		_ = json.Unmarshal(rec.Body.Bytes(), &body)
-		if rec.Code != http.StatusBadGateway || body["error"] != tc.code || !strings.Contains(body["message"], tc.says) {
+		if rec.Code != tc.status || body["error"] != tc.code || !strings.Contains(body["message"], tc.says) {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
 		}
 	}

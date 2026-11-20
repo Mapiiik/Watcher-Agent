@@ -116,22 +116,28 @@ func LoadRadiusConfig() radius.Config {
 	}
 }
 
-// LoadRouterOSAPIConfig panics with a fingerprint that is not one, so that verification never silently goes off.
+// LoadRouterOSAPIConfig panics with a fingerprint or a network that is not one, so that neither check ever silently
+// goes off.
 func LoadRouterOSAPIConfig() routeros.Config {
 	fingerprint, err := routeros.ParseFingerprint(os.Getenv("AGENT_ROUTEROS_API_CA_FINGERPRINT"))
 	if err != nil {
 		panic("bad AGENT_ROUTEROS_API_CA_FINGERPRINT: " + err.Error())
 	}
+	targets, err := routeros.ParseTargets(os.Getenv("AGENT_ROUTEROS_API_ALLOW_CIDRS"))
+	if err != nil {
+		panic("bad AGENT_ROUTEROS_API_ALLOW_CIDRS: " + err.Error())
+	}
 
 	return routeros.Config{
 		Username: strings.TrimSpace(os.Getenv("AGENT_ROUTEROS_API_USERNAME")),
 		// Not trimmed, a password may end with a space
-		Password:      os.Getenv("AGENT_ROUTEROS_API_PASSWORD"),
-		PlainFallback: envDefault("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "false") == "true",
-		CAFingerprint: fingerprint,
-		Timeout:       time.Duration(envIntDefault("AGENT_ROUTEROS_API_TIMEOUT_MS", 5000)) * time.Millisecond,
-		TLSPort:       8729,
-		PlainPort:     8728,
+		Password:       os.Getenv("AGENT_ROUTEROS_API_PASSWORD"),
+		PlainFallback:  envDefault("AGENT_ROUTEROS_API_PLAIN_FALLBACK", "false") == "true",
+		CAFingerprint:  fingerprint,
+		AllowedTargets: targets,
+		Timeout:        time.Duration(envIntDefault("AGENT_ROUTEROS_API_TIMEOUT_MS", 5000)) * time.Millisecond,
+		TLSPort:        8729,
+		PlainPort:      8728,
 	}
 }
 

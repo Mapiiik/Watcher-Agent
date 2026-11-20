@@ -202,8 +202,10 @@ func badRequest(w http.ResponseWriter, msg string) {
 }
 
 func writeRouterOSError(w http.ResponseWriter, err error) {
-	code := "routeros_unreachable"
+	status, code := http.StatusBadGateway, "routeros_unreachable"
 	switch {
+	case errors.Is(err, routeros.ErrTargetNotAllowed):
+		status, code = http.StatusForbidden, "routeros_target_not_allowed"
 	case errors.Is(err, routeros.ErrCertificateInvalid):
 		code = "routeros_certificate_invalid"
 	case errors.Is(err, routeros.ErrLoginFailed):
@@ -212,5 +214,5 @@ func writeRouterOSError(w http.ResponseWriter, err error) {
 		code = "routeros_command_failed"
 	}
 
-	httphelpers.WriteError(w, http.StatusBadGateway, code, err.Error())
+	httphelpers.WriteError(w, status, code, err.Error())
 }

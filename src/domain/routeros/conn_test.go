@@ -204,6 +204,56 @@ func TestOpenStaysOffThePlainAPI(t *testing.T) {
 	}
 }
 
+// Outside the networks the agent does not connect at all, so nobody there sees the login, not over TLS, not over the
+// plain api, and not behind a name either.
+func TestOpenStaysInsideTheAllowedNetworks(t *testing.T) {
+	inside, err := ParseTargets("127.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside, err := ParseTargets("10.0.0.0/8 192.0.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router := tlsRouter(t, routerosapi.SelfSigned(t), testMenus)
+	cfg := testConfig(router.Port, closedPort(t))
+	cfg.AllowedTargets = inside
+	s, err := Open(cfg, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+
+	for name, tc := range map[string]struct {
+		answering bool
+		host      string
+	}{
+		"api-ssl answering": {true, "127.0.0.1"},
+		"api-ssl refused":   {false, "127.0.0.1"},
+		"by a name":         {false, "localhost"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tlsPort, tlsConnections := closedPort(t), func() int { return 0 }
+			if tc.answering {
+				router := tlsRouter(t, routerosapi.SelfSigned(t), testMenus)
+				tlsPort, tlsConnections = router.Port, router.Connections
+			}
+			plain := plainRouter(t)
+			cfg := testConfig(tlsPort, plain.Port)
+			cfg.AllowedTargets = outside
+			cfg.PlainFallback = true
+
+			if _, err := Open(cfg, tc.host); !errors.Is(err, ErrTargetNotAllowed) {
+				t.Errorf("err = %v", err)
+			}
+			if n := tlsConnections() + plain.Connections(); n != 0 {
+				t.Errorf("%d connections", n)
+			}
+		})
+	}
+}
+
 func TestOpenVerifiesAgainstTheCA(t *testing.T) {
 	ca := routerosapi.NewCA(t)
 	foreign := routerosapi.NewCA(t)

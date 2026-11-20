@@ -29,6 +29,7 @@ var (
 	ErrUnreachable        = errors.New("no connection to the router")
 	ErrLoginFailed        = errors.New("the router refused the login")
 	ErrCertificateInvalid = errors.New("the router's certificate is not signed by the configured CA")
+	ErrTargetNotAllowed   = errors.New("the address is outside the networks the agent may log in to")
 	ErrCommandFailed      = errors.New("the router refused a command")
 
 	// ErrNoSuchMenu is ErrCommandFailed for a menu the router does not have. Every other refusal, such as a missing
@@ -116,7 +117,7 @@ func dial(cfg Config, host string) (net.Conn, string, error) {
 	if err == nil {
 		return conn, TransportTLS, nil
 	}
-	if errors.Is(err, ErrCertificateInvalid) {
+	if errors.Is(err, ErrCertificateInvalid) || errors.Is(err, ErrTargetNotAllowed) {
 		return nil, "", err
 	}
 
@@ -125,7 +126,8 @@ func dial(cfg Config, host string) (net.Conn, string, error) {
 		return nil, "", fmt.Errorf("%w: api-ssl: %v", ErrUnreachable, err)
 	}
 
-	conn, plainErr := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(cfg.PlainPort)), cfg.Timeout)
+	d := net.Dialer{Timeout: cfg.Timeout, Control: allowTarget(cfg)}
+	conn, plainErr := d.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(cfg.PlainPort)))
 	if plainErr != nil {
 		return nil, "", fmt.Errorf("%w: api-ssl: %v; api: %v", ErrUnreachable, err, plainErr)
 	}
@@ -140,7 +142,7 @@ func dialTLS(cfg Config, host string) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
 
-	d := tls.Dialer{Config: &tls.Config{
+	d := tls.Dialer{NetDialer: &net.Dialer{Control: allowTarget(cfg)}, Config: &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		// Routers are reached by addresses that change, so no name is checked. Whether the certificate is checked
 		// at all depends on the CA fingerprint, see verifyConnection.
@@ -149,6 +151,22 @@ func dialTLS(cfg Config, host string) (net.Conn, error) {
 	}}
 
 	return d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(cfg.TLSPort)))
+}
+
+// allowTarget checks the address the dialer is about to connect to, after any name is resolved, so that a name
+// cannot lead outside the networks either.
+func allowTarget(cfg Config) func(string, string, syscall.RawConn) error {
+	if cfg.AllowedTargets == nil {
+		return nil
+	}
+
+	return func(_, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if ip := net.ParseIP(host); err == nil && ip != nil && cfg.allows(ip) {
+			return nil
+		}
+		return fmt.Errorf("%w: %s", ErrTargetNotAllowed, host)
+	}
 }
 
 // verifyConnection accepts any certificate without a CA fingerprint. With one, the CA has to be in the chain the

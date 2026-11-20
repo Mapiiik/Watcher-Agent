@@ -3,6 +3,7 @@ package routeros
 import (
 	"bytes"
 	"errors"
+	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -90,6 +91,40 @@ func TestParseFingerprint(t *testing.T) {
 	for _, bad := range []string{"AB:CD", string(bytes.Repeat([]byte("zz"), 32))} {
 		if _, err := ParseFingerprint(bad); err == nil {
 			t.Errorf("ParseFingerprint(%q) passed", bad)
+		}
+	}
+}
+
+func TestParseTargets(t *testing.T) {
+	nets, err := ParseTargets(" 10.16.0.0/12  192.0.2.1\t2001:db8::/32 2001:db8:1::1 ")
+	if err != nil || len(nets) != 4 {
+		t.Fatalf("ParseTargets = %v, %v", nets, err)
+	}
+
+	cfg := Config{AllowedTargets: nets}
+	for ip, want := range map[string]bool{
+		"10.16.0.1": true, "10.31.255.255": true, "10.32.0.1": false,
+		"192.0.2.1": true, "192.0.2.2": false,
+		"2001:db8:ffff::1": true, "2001:db9::1": false,
+		"::ffff:10.16.0.1": true,
+	} {
+		if got := cfg.allows(net.ParseIP(ip)); got != want {
+			t.Errorf("allows(%s) = %v", ip, got)
+		}
+	}
+
+	for _, empty := range []string{"", "  "} {
+		if nets, err := ParseTargets(empty); nets != nil || err != nil {
+			t.Errorf("ParseTargets(%q) = %v, %v", empty, nets, err)
+		}
+	}
+	if !(Config{}).allows(net.ParseIP("203.0.113.1")) {
+		t.Error("no networks did not allow any address")
+	}
+
+	for _, bad := range []string{"10.0.0.0/33", "10.0.0.256", "router.example", "10.0.0.0/8,10.66.0.0/16"} {
+		if _, err := ParseTargets(bad); err == nil {
+			t.Errorf("ParseTargets(%q) passed", bad)
 		}
 	}
 }
