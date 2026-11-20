@@ -2,6 +2,7 @@ package icmpsocket
 
 import (
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -53,7 +54,8 @@ func TestTheLoopbackAnswers(t *testing.T) {
 				if err != nil || !ok {
 					t.Fatalf("ok %v, err %v", ok, err)
 				}
-				if rtt <= 0 || rtt > time.Second {
+				// Windows may measure the loopback as no time at all
+				if rtt < 0 || rtt > time.Second {
 					t.Errorf("round trip %v", rtt)
 				}
 			})
@@ -126,8 +128,11 @@ func TestTwoPingersKeepToTheirOwnReplies(t *testing.T) {
 	}
 }
 
-// A raw socket lets only echo replies through, the rest of ICMP stays in the kernel.
+// A raw socket lets only echo replies through, the rest of ICMP stays in the kernel. Only Linux has the filter.
 func TestARawSocketTakesOnlyEchoReplies(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the ICMP filter is Linux's")
+	}
 	p := opened(t, Raw, IPv4).conn.(*icmp.PacketConn)
 	f4, err := p.IPv4PacketConn().ICMPFilter()
 	if err != nil {
