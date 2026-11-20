@@ -33,7 +33,7 @@ func newHandler(
 		appCfg.AgentID,
 		appCfg.DeviceTypes,
 	)
-	pingSvc := httpapi.NewPingService()
+	pingSvc := httpapi.NewPingService(appCfg.ICMP)
 	radiusSvc := httpapi.NewRadiusService(radiusCfg)
 	snmpSvc := httpapi.NewSNMPService(snmpCfg)
 	routerOSSvc := httpapi.NewRouterOSService(routerOSCfg)

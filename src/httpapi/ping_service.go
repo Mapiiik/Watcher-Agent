@@ -3,20 +3,25 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"watcher-agent/src/httphelpers"
-	"watcher-agent/src/infra/icmpengine4"
-	"watcher-agent/src/infra/icmpengine6"
+	"watcher-agent/src/infra/icmpsocket"
 )
 
 // maxPingMs is what a ping may take when nothing answers, under the time the server gives a request.
 const maxPingMs = 120_000
 
+// PingService pings over one ICMP socket for each address family, opened at start and kept.
 type PingService struct {
-	// prepared for future configuration options if needed
+	kind icmpsocket.Kind
+
+	mu      sync.Mutex
+	pingers map[string]*icmpsocket.Pinger
 }
 
 type PingRequest struct {
@@ -37,13 +42,37 @@ type PingReply struct {
 	RTTMaxMs  float64 `json:"rtt_max_ms"`
 }
 
-// echoSender is an ICMP engine, as far as a series of pings needs one.
+// echoSender is an ICMP socket, as far as a series of pings needs one.
 type echoSender interface {
-	Ping(net.IP, int, time.Duration) (time.Duration, bool, error)
+	Ping(net.IP, time.Duration) (time.Duration, bool, error)
 }
 
-func NewPingService() *PingService {
-	return &PingService{}
+// NewPingService opens the sockets of both families right away, so that the log tells at start how the agent
+// pings. A socket that cannot be opened is tried again with the next ping over it.
+func NewPingService(kind icmpsocket.Kind) *PingService {
+	s := &PingService{kind: kind, pingers: make(map[string]*icmpsocket.Pinger)}
+	for _, fam := range []icmpsocket.Family{icmpsocket.IPv4, icmpsocket.IPv6} {
+		if _, err := s.pinger(fam); err != nil {
+			log.Printf("ICMP %s: %v", fam.Name, err)
+		}
+	}
+	return s
+}
+
+func (s *PingService) pinger(fam icmpsocket.Family) (*icmpsocket.Pinger, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if p := s.pingers[fam.Name]; p != nil {
+		return p, nil
+	}
+	p, err := icmpsocket.Open(s.kind, fam)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("ICMP %s: pinging over an %s socket", fam.Name, p.Kind())
+	s.pingers[fam.Name] = p
+	return p, nil
 }
 
 // HandlePing pings an address or a name (IPv6 preferred) and reports the loss and round-trip times.
@@ -105,32 +134,18 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Select appropriate ICMP engine based on IP version
-	var engine interface {
-		Acquire() error
-		Release()
-		Ping(net.IP, int, time.Duration) (time.Duration, bool, error)
-	}
-
-	if ip.To4() != nil {
-		engine = icmpengine4.Get()
-	} else {
-		engine = icmpengine6.Get()
-	}
-
-	// Acquire engine resources (e.g., open raw socket) before pinging
-	if err := engine.Acquire(); err != nil {
+	pinger, err := s.pinger(icmpsocket.FamilyOf(ip))
+	if err != nil {
 		httphelpers.WriteError(
 			w,
 			http.StatusInternalServerError,
 			"icmp_unavailable",
-			"ICMP engine unavailable (need CAP_NET_RAW or root).",
+			fmt.Sprintf("No ICMP socket: %s", err),
 		)
 		return
 	}
-	defer engine.Release()
 
-	reply, err := pingSeries(engine, ip, req.Count, time.Duration(req.TimeoutMs)*time.Millisecond)
+	reply, err := pingSeries(pinger, ip, req.Count, time.Duration(req.TimeoutMs)*time.Millisecond)
 	if err != nil {
 		httphelpers.WriteError(
 			w,
@@ -146,14 +161,14 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 
 // pingSeries pings the address count times. A request that did not go out is not a lost packet and says nothing about
 // the host, so it counts for nothing, and with none sent there is only the error to tell.
-func pingSeries(engine echoSender, ip net.IP, count int, timeout time.Duration) (PingReply, error) {
+func pingSeries(pinger echoSender, ip net.IP, count int, timeout time.Duration) (PingReply, error) {
 	var sent, recv int
 	var sum time.Duration
 	var minRTT, maxRTT time.Duration
 	var sendErr error
 
-	for seq := 0; seq < count; seq++ {
-		rtt, ok, err := engine.Ping(ip, seq, timeout)
+	for range count {
+		rtt, ok, err := pinger.Ping(ip, timeout)
 		if err != nil {
 			sendErr = err
 			continue

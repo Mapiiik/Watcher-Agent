@@ -104,6 +104,7 @@ All configuration is via environment variables (see [.env.example](.env.example)
 | `AGENT_CERT_DIR` | | `./certs` | Directory where ACME certificates are cached. |
 | `AGENT_ROUTEROS_ALLOW_CIDRS` | | `0.0.0.0/0` | Space-separated CIDRs allowed to hit `/provision/routeros/`. **Restrict this.** |
 | `AGENT_ROUTEROS_QUERY_TOKEN` | | _(empty)_ | Optional `?token=` value additionally required for provisioning. |
+| `AGENT_ICMP` | | `auto` | ICMP socket of `/api/ping`: `auto` takes an unprivileged one where `net.ipv4.ping_group_range` allows it (Docker does in every container), a raw one otherwise; `unprivileged` or `raw` picks one for good. Another value stops the agent from starting. See [ICMP sockets](#icmp-sockets). |
 | `AGENT_SNMP_PORT` | | `161` | SNMP UDP port. |
 | `AGENT_SNMP_TIMEOUT_MS` | | `1500` | Per-attempt SNMP timeout. |
 | `AGENT_SNMP_RETRIES` | | `1` | gosnmp transport-level retries. |
@@ -149,7 +150,7 @@ Returns uptime and advertised capabilities (the names of the configured device t
 
 ### `POST /api/ping`
 
-> Requires the `NET_RAW` capability (raw ICMP sockets). See [Deployment notes](#deployment-notes).
+> Pings over the ICMP socket `AGENT_ICMP` picks, see [ICMP sockets](#icmp-sockets).
 
 ```jsonc
 // request
@@ -331,9 +332,27 @@ On any failure the response is a RouterOS-runnable error line so the device logs
 
 ## Deployment notes
 
-- **Capabilities.** `/api/ping` opens raw ICMP sockets and needs `NET_RAW`; binding to
-  ports 80/443 needs `NET_BIND_SERVICE`. Both are granted in the provided compose files
-  via `cap_add`.
+- **Capabilities.** Binding to ports 80/443 needs `NET_BIND_SERVICE`. `/api/ping` needs
+  `NET_RAW` only for a raw ICMP socket, see [ICMP sockets](#icmp-sockets). Both are granted
+  in the provided compose files via `cap_add`.
+
+### ICMP sockets
+
+`/api/ping` keeps one ICMP socket for IPv4 and one for IPv6, opened at start; the log says
+which kind each is (`ICMP IPv4: pinging over an unprivileged socket`). One that cannot be
+opened is logged and tried again with the next ping.
+
+- **Unprivileged** (`SOCK_DGRAM`) needs only the group of the process in
+  `net.ipv4.ping_group_range`, which covers IPv6 too. Docker sets it to every group in a
+  container. The kernel gives the requests the socket's echo ID and hands the socket only
+  its own replies.
+- **Raw** needs `NET_RAW` and would get every ICMP message of the machine; a filter in the
+  kernel lets only echo replies through, and every request has an echo ID of its own.
+
+At most 512 requests per socket wait for a reply at once, the next ones wait for their
+turn, which bounds what the socket's buffer has to hold. Each socket asks for a 4 MiB buffer, which
+the kernel caps at `net.core.rmem_max`. The package `src/infra/icmpsocket` is the same byte
+for byte in Watcher Pinger.
 - **TLS.** With `AGENT_HOSTNAME` unset the agent serves a freshly generated self-signed
   certificate (30-day validity, regenerated on each restart). Set `AGENT_HOSTNAME` to a
   public name and persist `AGENT_CERT_DIR` to use ACME / Let's Encrypt instead.
@@ -375,8 +394,7 @@ src/
     radius/      RADIUS Disconnect (RFC 3576 / 5176)
     routeros/    RouterOS API: address lists, access lists, api-ssl with the plain api fallback
   infra/
-    icmpengine4/ shared IPv4 ICMP socket + ping engine
-    icmpengine6/ shared IPv6 ICMP socket + ping engine
+    icmpsocket/  ICMP sockets for IPv4 and IPv6, unprivileged or raw (the same in Watcher Pinger)
   integration/
     nms/         client for the central NMS provisioning API
   testutil/

@@ -5,13 +5,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"watcher-agent/src/infra/icmpsocket"
 )
 
 var agentEnv = []string{
 	"AGENT_LISTEN_HTTP", "AGENT_LISTEN_HTTPS", "AGENT_USE_PROXY_PROTOCOL", "AGENT_PROXY_ALLOW_CIDRS",
 	"AGENT_HOSTNAME", "AGENT_CERT_DIR",
 	"AGENT_API_TOKEN", "AGENT_ID", "AGENT_ROUTEROS_ALLOW_CIDRS", "AGENT_ROUTEROS_QUERY_TOKEN",
-	"AGENT_DEVICE_TYPES_JSON", "AGENT_SNMP_PORT", "AGENT_SNMP_TIMEOUT_MS", "AGENT_SNMP_RETRIES",
+	"AGENT_DEVICE_TYPES_JSON", "AGENT_ICMP", "AGENT_SNMP_PORT", "AGENT_SNMP_TIMEOUT_MS", "AGENT_SNMP_RETRIES",
 	"AGENT_RADIUS_PORT", "AGENT_RADIUS_TIMEOUT_MS", "AGENT_RADIUS_RETRIES", "AGENT_NMS_BASE_URL", "AGENT_NMS_TOKEN",
 	"AGENT_NMS_VERIFY_TLS",
 	"AGENT_ROUTEROS_API_USERNAME", "AGENT_ROUTEROS_API_PASSWORD", "AGENT_ROUTEROS_API_PLAIN_FALLBACK",
@@ -59,6 +61,9 @@ func TestLoadAppConfigDefaults(t *testing.T) {
 	if len(cfg.DeviceTypes) != 0 {
 		t.Errorf("device types = %v", cfg.DeviceTypes)
 	}
+	if cfg.ICMP != icmpsocket.Auto {
+		t.Errorf("ICMP = %q", cfg.ICMP)
+	}
 }
 
 func TestLoadAppConfig(t *testing.T) {
@@ -69,6 +74,7 @@ func TestLoadAppConfig(t *testing.T) {
 	t.Setenv("AGENT_ROUTEROS_ALLOW_CIDRS", " 10.0.0.0/8\t2a02:3c0::/29 ")
 	t.Setenv("AGENT_ROUTEROS_QUERY_TOKEN", " q-token ")
 	t.Setenv("AGENT_DEVICE_TYPES_JSON", `{"router":{"community":"secret"},"ap":{"community":"other"}}`)
+	t.Setenv("AGENT_ICMP", " raw ")
 
 	cfg := LoadAppConfig()
 
@@ -83,6 +89,9 @@ func TestLoadAppConfig(t *testing.T) {
 	}
 	if cfg.DeviceTypes["router"].Community != "secret" || cfg.DeviceTypes["ap"].Community != "other" {
 		t.Errorf("device types = %v", cfg.DeviceTypes)
+	}
+	if cfg.ICMP != icmpsocket.Raw {
+		t.Errorf("ICMP = %q", cfg.ICMP)
 	}
 }
 
@@ -106,6 +115,10 @@ func TestLoadAppConfigRefusesToStart(t *testing.T) {
 	t.Setenv("AGENT_API_TOKEN", "api-token")
 	t.Setenv("AGENT_DEVICE_TYPES_JSON", `{"router":`)
 	mustPanic(t, "broken AGENT_DEVICE_TYPES_JSON", func() { LoadAppConfig() })
+
+	t.Setenv("AGENT_DEVICE_TYPES_JSON", "")
+	t.Setenv("AGENT_ICMP", "datagram")
+	mustPanic(t, "unknown AGENT_ICMP", func() { LoadAppConfig() })
 }
 
 func TestLoadSNMPAndRadiusConfig(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"watcher-agent/src/domain/routeros"
 	"watcher-agent/src/domain/snmp"
 	"watcher-agent/src/httpapi"
+	"watcher-agent/src/infra/icmpsocket"
 	"watcher-agent/src/integration/nms"
 )
 
@@ -40,6 +41,9 @@ type AppConfig struct {
 
 	// Device types of the provisioning URL with the SNMP community of each
 	DeviceTypes map[string]httpapi.DeviceTypeConfig
+
+	// Kind of ICMP socket to ping over
+	ICMP icmpsocket.Kind
 }
 
 func mustEnv(key string) string {
@@ -70,14 +74,18 @@ func envIntDefault(key string, def int) int {
 	return i
 }
 
-// LoadAppConfig panics without AGENT_API_TOKEN or with a broken AGENT_DEVICE_TYPES_JSON, so the agent never
-// starts half configured.
+// LoadAppConfig panics without AGENT_API_TOKEN, with a broken AGENT_DEVICE_TYPES_JSON or an unknown AGENT_ICMP, so
+// the agent never starts half configured.
 func LoadAppConfig() AppConfig {
 	deviceTypes := map[string]httpapi.DeviceTypeConfig{}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_DEVICE_TYPES_JSON")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &deviceTypes); err != nil {
 			panic("bad AGENT_DEVICE_TYPES_JSON: " + err.Error())
 		}
+	}
+	icmpKind, err := icmpsocket.ParseKind(strings.TrimSpace(os.Getenv("AGENT_ICMP")))
+	if err != nil {
+		panic("bad AGENT_ICMP: " + err.Error())
 	}
 
 	return AppConfig{
@@ -97,6 +105,7 @@ func LoadAppConfig() AppConfig {
 		RouterOSQueryToken: strings.TrimSpace(os.Getenv("AGENT_ROUTEROS_QUERY_TOKEN")),
 
 		DeviceTypes: deviceTypes,
+		ICMP:        icmpKind,
 	}
 }
 

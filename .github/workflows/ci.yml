@@ -112,6 +112,12 @@ jobs:
       - name: Go test
         run: go test -race ./...
 
+      # the raw sockets need CAP_NET_RAW, which the tests above go without
+      - name: Go test of the ICMP sockets
+        run: |
+          go test -c -race -o icmpsocket.test ./src/infra/icmpsocket
+          sudo ./icmpsocket.test -test.v
+
   docker:
     name: Build & Push Docker image
     runs-on: ubuntu-latest
