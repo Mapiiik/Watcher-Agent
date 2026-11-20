@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"watcher-agent/src/httphelpers"
@@ -18,10 +17,7 @@ const maxPingMs = 120_000
 
 // PingService pings over one ICMP socket for each address family, opened at start and kept.
 type PingService struct {
-	kind icmpsocket.Kind
-
-	mu      sync.Mutex
-	pingers map[string]*icmpsocket.Pinger
+	pingers *icmpsocket.Pingers
 }
 
 type PingRequest struct {
@@ -48,31 +44,16 @@ type echoSender interface {
 }
 
 // NewPingService opens the sockets of both families right away, so that the log tells at start how the agent
-// pings. A socket that cannot be opened is tried again with the next ping over it.
+// pings. A socket that cannot be opened is tried again a minute later.
 func NewPingService(kind icmpsocket.Kind) *PingService {
-	s := &PingService{kind: kind, pingers: make(map[string]*icmpsocket.Pinger)}
-	for _, fam := range []icmpsocket.Family{icmpsocket.IPv4, icmpsocket.IPv6} {
-		if _, err := s.pinger(fam); err != nil {
+	pingers, _ := icmpsocket.OpenPingers(kind, func(fam icmpsocket.Family, p *icmpsocket.Pinger, err error) {
+		if err != nil {
 			log.Printf("ICMP %s: %v", fam.Name, err)
+			return
 		}
-	}
-	return s
-}
-
-func (s *PingService) pinger(fam icmpsocket.Family) (*icmpsocket.Pinger, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if p := s.pingers[fam.Name]; p != nil {
-		return p, nil
-	}
-	p, err := icmpsocket.Open(s.kind, fam)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("ICMP %s: pinging over an %s socket", fam.Name, p.Kind())
-	s.pingers[fam.Name] = p
-	return p, nil
+		log.Printf("ICMP %s: pinging over an %s socket", fam.Name, p.Kind())
+	})
+	return &PingService{pingers: pingers}
 }
 
 // HandlePing pings an address or a name (IPv6 preferred) and reports the loss and round-trip times.
@@ -134,7 +115,7 @@ func (s *PingService) HandlePing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pinger, err := s.pinger(icmpsocket.FamilyOf(ip))
+	pinger, err := s.pingers.Socket(icmpsocket.FamilyOf(ip))
 	if err != nil {
 		httphelpers.WriteError(
 			w,
