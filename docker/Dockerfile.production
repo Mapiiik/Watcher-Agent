@@ -13,14 +13,21 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o watcher-agent ./src/main
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o watcher-agent ./src/main \
+    && mkdir -p /out/certs
 
 # ---------- runtime ----------
-# Nothing runs in this stage (Alpine ships the CA bundle), so other platforms need no emulation
+# Nothing runs in this stage (Alpine ships the CA bundle), so other platforms need no emulation; the folder for the
+# ACME certificates comes from the build stage for that reason, owned by the user the agent runs as, which needs no
+# entry in /etc/passwd. It pings over an unprivileged ICMP socket and binds 80 and 443 where the container allows it,
+# see compose.production.yaml.
 FROM alpine:latest
 
 WORKDIR /app
 
 COPY --from=build /app/watcher-agent /app/watcher-agent
+COPY --from=build --chown=1000:1000 /out/certs /app/certs
+
+USER 1000:1000
 
 ENTRYPOINT ["/app/watcher-agent"]
