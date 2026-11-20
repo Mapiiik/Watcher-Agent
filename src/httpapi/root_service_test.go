@@ -21,6 +21,10 @@ func TestHandleRoot(t *testing.T) {
 	if rec.Code != http.StatusOK || body["status"] != "ok" || body["agent_id"] != "agent-7" || body["service"] != "watcher-agent" {
 		t.Errorf("%d %v", rec.Code, body)
 	}
+	// the source for anybody, the version only for callers with a key, at /api/status
+	if _, told := body["version"]; body["source"] != Repository || told {
+		t.Errorf("source and version at the root: %v", body)
+	}
 }
 
 // The root handler is the mux fallback, so every unknown path ends here.
@@ -34,7 +38,7 @@ func TestHandleRootUnknownPath(t *testing.T) {
 }
 
 func TestHandleStatus(t *testing.T) {
-	svc := NewStatusService("agent-7", map[string]DeviceTypeConfig{"router": {Community: "secret"}})
+	svc := NewStatusService("agent-7", "1.2.3", map[string]DeviceTypeConfig{"router": {Community: "secret"}})
 	svc.startTime = time.Now().Add(-90 * time.Second)
 
 	rec := httptest.NewRecorder()
@@ -43,6 +47,7 @@ func TestHandleStatus(t *testing.T) {
 	var body struct {
 		Status        string `json:"status"`
 		AgentID       string `json:"agent_id"`
+		Version       string `json:"version"`
 		StartedAt     string `json:"started_at"`
 		Uptime        string `json:"uptime"`
 		UptimeSeconds int64  `json:"uptime_seconds"`
@@ -54,7 +59,8 @@ func TestHandleStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if body.Status != "ok" || body.AgentID != "agent-7" || body.Uptime != "1m 30s" || body.UptimeSeconds != 90 {
+	if body.Status != "ok" || body.AgentID != "agent-7" || body.Version != "1.2.3" || body.Uptime != "1m 30s" ||
+		body.UptimeSeconds != 90 {
 		t.Errorf("status = %+v", body)
 	}
 	if _, err := time.Parse(time.RFC3339, body.StartedAt); err != nil {
@@ -67,7 +73,7 @@ func TestHandleStatus(t *testing.T) {
 
 func TestHandleStatusNamesTheDeviceTypesOnly(t *testing.T) {
 	rec := httptest.NewRecorder()
-	NewStatusService("agent-7", map[string]DeviceTypeConfig{
+	NewStatusService("agent-7", "1.2.3", map[string]DeviceTypeConfig{
 		"router": {Community: "router-community"},
 		"bridge": {Community: "bridge-community"},
 	}).HandleStatus(rec, httptest.NewRequest("GET", "/api/status", nil))
@@ -82,7 +88,7 @@ func TestHandleStatusNamesTheDeviceTypesOnly(t *testing.T) {
 
 func TestHandleStatusWithoutDeviceTypes(t *testing.T) {
 	rec := httptest.NewRecorder()
-	NewStatusService("agent-7", nil).HandleStatus(rec, httptest.NewRequest("GET", "/api/status", nil))
+	NewStatusService("agent-7", "1.2.3", nil).HandleStatus(rec, httptest.NewRequest("GET", "/api/status", nil))
 
 	if want := `"device_types":[]`; !strings.Contains(rec.Body.String(), want) {
 		t.Errorf("%s, want %s", rec.Body.String(), want)

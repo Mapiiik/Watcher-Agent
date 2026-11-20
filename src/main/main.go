@@ -13,7 +13,12 @@ import (
 	"syscall"
 )
 
+// version is set by the build, from the tag or the commit it is built from.
+var version = "dev"
+
 func main() {
+	log.Printf("Watcher Agent %s is starting", version)
+
 	// Channel to listen for OS signals (e.g. SIGINT, SIGTERM)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

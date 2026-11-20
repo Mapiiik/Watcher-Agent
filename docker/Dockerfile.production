@@ -4,6 +4,8 @@ FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:${GO_VERSION}-alpine AS bui
 
 ARG TARGETOS
 ARG TARGETARCH
+# git describe of the commit, told in the log and at /api/status
+ARG VERSION="dev"
 
 WORKDIR /app
 
@@ -13,7 +15,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o watcher-agent ./src/main \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-X main.version=${VERSION}" \
+        -o watcher-agent ./src/main \
     && mkdir -p /out/certs
 
 # ---------- runtime ----------

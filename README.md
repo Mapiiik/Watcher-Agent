@@ -143,12 +143,13 @@ Errors use `{ "error": "<code>", "message": "<text>" }`.
 ### `GET /` &nbsp;·&nbsp; health (no auth)
 
 ```json
-{ "service": "watcher-agent", "status": "ok", "agent_id": "agent-1" }
+{ "service": "watcher-agent", "status": "ok", "agent_id": "agent-1", "source": "https://github.com/Mapiiik/Watcher-Agent" }
 ```
 
 ### `GET /api/status`
 
-Returns uptime and advertised capabilities (the names of the configured device types).
+Returns the version (`git describe` of the commit the image was built from), uptime and advertised capabilities (the
+names of the configured device types).
 
 ### `POST /api/ping`
 

@@ -31,6 +31,7 @@ func newHandler(
 	rootSvc := httpapi.NewRootService(appCfg.AgentID)
 	statusSvc := httpapi.NewStatusService(
 		appCfg.AgentID,
+		version,
 		appCfg.DeviceTypes,
 	)
 	pingSvc := httpapi.NewPingService(appCfg.ICMP)
