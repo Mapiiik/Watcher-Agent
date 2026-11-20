@@ -15,6 +15,9 @@ func secureEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
+// maxBodyBytes bounds what a caller of the API may send; the debtors of a whole network fit in it many times.
+const maxBodyBytes = 8 << 20
+
 func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -28,6 +31,7 @@ func bearerAuth(appCfg AppConfig, next http.Handler) http.Handler {
 			)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		next.ServeHTTP(w, r)
 	})
 }

@@ -2,11 +2,15 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"watcher-agent/src/domain/radius"
 	"watcher-agent/src/httphelpers"
 )
+
+// maxRadiusTimeoutMs is what one attempt may wait for the NAS; a NAS answers within a second or not at all.
+const maxRadiusTimeoutMs = 10_000
 
 type RadiusService struct {
 	cfg radius.Config
@@ -34,6 +38,16 @@ func (s *RadiusService) HandleDisconnect(w http.ResponseWriter, r *http.Request)
 			http.StatusBadRequest,
 			"bad_request",
 			"Parameters 'nas_ip' and 'secret' are required.",
+		)
+		return
+	}
+
+	if in.TimeoutMs > maxRadiusTimeoutMs {
+		httphelpers.WriteError(
+			w,
+			http.StatusBadRequest,
+			"bad_request",
+			fmt.Sprintf("'timeout_ms' may be %d at most.", maxRadiusTimeoutMs),
 		)
 		return
 	}

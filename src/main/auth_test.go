@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +49,28 @@ func TestBearerAuth(t *testing.T) {
 		}
 		if want == http.StatusUnauthorized && errorCode(t, rec) != "unauthorized" {
 			t.Errorf("Authorization %q: %s", header, rec.Body.String())
+		}
+	}
+}
+
+// A caller of the API gets its body read up to the bound and no further.
+func TestBearerAuthBoundsTheBody(t *testing.T) {
+	var read int
+	var readErr error
+	h := bearerAuth(AppConfig{APIToken: "api-token"}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b []byte
+		b, readErr = io.ReadAll(r.Body)
+		read = len(b)
+	}))
+
+	for size, fits := range map[int]bool{maxBodyBytes: true, maxBodyBytes + 1: false} {
+		r := httptest.NewRequest("POST", "/api/routeros/address-list/sync", strings.NewReader(strings.Repeat("x", size)))
+		r.Header.Set("Authorization", "Bearer api-token")
+		h.ServeHTTP(httptest.NewRecorder(), r)
+
+		var tooLarge *http.MaxBytesError
+		if fits && (readErr != nil || read != size) || !fits && !errors.As(readErr, &tooLarge) {
+			t.Errorf("%d bytes: read %d, %v", size, read, readErr)
 		}
 	}
 }

@@ -16,6 +16,7 @@ func TestHandleDisconnectBadRequest(t *testing.T) {
 		"not JSON":       "nas_ip=127.0.0.1",
 		"without secret": `{"nas_ip":"127.0.0.1","username":"customer"}`,
 		"without NAS":    `{"secret":"s","username":"customer"}`,
+		"waiting long":   `{"nas_ip":"127.0.0.1","secret":"s","timeout_ms":10001}`,
 	} {
 		rec := httptest.NewRecorder()
 		svc.HandleDisconnect(rec, httptest.NewRequest("POST", "/api/radius/disconnect", jsonBody(body)))
