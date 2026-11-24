@@ -5,7 +5,7 @@
 > host. Parameter names, storage layout and addressing differ between RouterOS versions and
 > hardware — review every command before pasting it on a live router.
 
-**Image:** `ghcr.io/mapiiik/watcher-agent:1`, the newest release of 1.x (multi-arch: `amd64` + `arm64`)
+**Image:** `ghcr.io/mapiiik/watcher-agent:latest`, the newest release (multi-arch: `amd64` + `arm64`)
 
 ## Before you start
 
@@ -91,7 +91,7 @@ add key=AGENT_NMS_TOKEN list=watcher_agent value=nms-agent-token
 
 ```
 /container
-add remote-image=ghcr.io/mapiiik/watcher-agent:1 interface=veth-watcher-agent envlist=watcher_agent name=watcher-agent root-dir=watcher-agent workdir=/app start-on-boot=yes logging=yes
+add remote-image=ghcr.io/mapiiik/watcher-agent:latest interface=veth-watcher-agent envlist=watcher_agent name=watcher-agent root-dir=watcher-agent workdir=/app start-on-boot=yes logging=yes
 ```
 
 ## 7. Start and verify

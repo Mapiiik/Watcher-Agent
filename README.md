@@ -62,9 +62,9 @@ cp .env.example .env      # edit the values, see Configuration below
 docker compose -f compose.production.yaml up -d
 ```
 
-`compose.production.yaml` runs the image `:1`, the newest release of 1.x, and also ships a
+`compose.production.yaml` runs the image `:latest`, the newest release, and also ships a
 [Watchtower](https://github.com/nicholas-fedor/watchtower) service that auto-updates the agent
-whenever a new one is published, a fix or a feature but never a release that breaks what 1.x does.
+whenever a new release is published.
 
 To build the image locally instead of pulling it:
 
