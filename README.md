@@ -62,8 +62,9 @@ cp .env.example .env      # edit the values, see Configuration below
 docker compose -f compose.production.yaml up -d
 ```
 
-`compose.production.yaml` also ships a [Watchtower](https://github.com/nicholas-fedor/watchtower)
-service that auto-updates the agent whenever a new `:latest` image is published.
+`compose.production.yaml` runs the image `:1`, the newest release of 1.x, and also ships a
+[Watchtower](https://github.com/nicholas-fedor/watchtower) service that auto-updates the agent
+whenever a new one is published, a fix or a feature but never a release that breaks what 1.x does.
 
 To build the image locally instead of pulling it:
 
@@ -388,9 +389,10 @@ docker compose -f compose.dev.yaml up --build   # live reload via `go run`
 ```
 
 CI (GitHub Actions) runs `go mod tidy` verification, `go vet`, golangci-lint and tests
-on every push/PR, then builds and pushes the multi-arch image to GHCR: `latest` from `main`, the version
-and its major number from a tag, a bare version such as `1.0.0`. A nightly
-run rebuilds it when a new Go patch release or Alpine image is out. Go cross-compiles and
+on every push/PR, then builds and pushes the multi-arch image to GHCR: `main` from `main`, and from
+a tag, a bare version such as `1.0.0`, the version, with its major number and `latest` while it is
+the newest release. A nightly run rebuilds `main` and the newest release when a new Go patch
+release or Alpine image is out. Go cross-compiles and
 nothing runs on the target platform, so the arm64 image needs no emulation.
 
 ### Project layout

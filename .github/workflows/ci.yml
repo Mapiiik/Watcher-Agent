@@ -14,78 +14,15 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # The branch built into the image of its name. A nightly run builds this branch, and the newest
+  # release, which `latest` and the version tags point at.
+  CURRENT_BRANCH: 'main'
   # The minor release only: every build takes its latest patch release (security fixes)
   GO_VERSION: '1.27'
   GOLANGCI_LINT_VERSION: 'v2.15.0'
 jobs:
-  ##########################################################################
-  # Scheduled runs build only when the commit, the Go patch release or the
-  # runtime image changed, pushes and manual runs always build.
-  ##########################################################################
-  setup:
-    name: Resolve base images
-    runs-on: ubuntu-latest
-    outputs:
-      key: ${{ steps.key.outputs.key }}
-      skip_build: ${{ steps.image_check.outputs.skip_build }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # docker/metadata-action lowercases the image name on its own, but the
-      # existence check below addresses the registry directly.
-      - name: Normalize image name
-        id: image
-        run: |
-          REPO="${{ github.repository }}"
-          echo "name=ghcr.io/${REPO,,}" >> "$GITHUB_OUTPUT"
-
-      # The commit and the digests of every FROM image: a new base image (security
-      # fixes) is a reason to rebuild, an unchanged one is not.
-      - name: Build key from commit and base images
-        id: key
-        run: |
-          BASES="$(awk 'toupper($1) == "FROM" { img = $NF; for (i = 2; i <= NF; i++) if (toupper($i) == "AS") img = $(i - 1); print img }' \
-            docker/Dockerfile.production | sed "s/\${GO_VERSION}/$GO_VERSION/" | sort -u)"
-          DIGESTS=""
-          for base in $BASES; do
-            digest="$(docker buildx imagetools inspect --raw "$base" | sha256sum | cut -c1-64)"
-            echo "::notice::$base $digest"
-            DIGESTS="$DIGESTS $digest"
-          done
-          BASE_KEY="$(echo "$DIGESTS" | sha256sum | cut -c1-12)"
-          echo "key=build-${GITHUB_SHA::7}-${BASE_KEY}" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if image already exists (for scheduler)
-        id: image_check
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            IMAGE="${{ steps.image.outputs.name }}:${{ steps.key.outputs.key }}"
-
-            echo "::notice::Checking if image exists: $IMAGE"
-
-            if docker manifest inspect "$IMAGE" > /dev/null; then
-              echo "::notice::Image already exists, skipping scheduled build."
-              echo "skip_build=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::notice::Image not found or registry error – proceeding with build."
-            fi
-          else
-            echo "::notice::Triggered by ${{ github.event_name }} – forcing rebuild."
-          fi
-
   test:
     name: Lint & Test
-    needs: setup
-    if: needs.setup.outputs.skip_build != 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -121,20 +58,161 @@ jobs:
           go test -c -race -o icmpsocket.test ./src/infra/icmpsocket
           sudo ./icmpsocket.test -test.v
 
-  docker:
-    name: Build & Push Docker image
+  ##########################################################################
+  # The image: from the branch and from git tags, after the tests, and
+  # nightly also from the newest release, so that it gets a new Go patch
+  # release or runtime image too. Resolve what to build, once, and share it
+  # with the build job as a list of targets.
+  ##########################################################################
+  setup:
+    name: Resolve targets and base images
+    needs: test
+    # It runs when the tests failed too: a release rebuilt for a new base image was tested when
+    # it was made, and the step below decides what failed tests hold back.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    needs:
-      - setup
-      - test
-    permissions:
-      contents: read
-      packages: write
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event_name == 'schedule' && env.CURRENT_BRANCH || '' }}
+          # the tags, to find the newest release
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Each target is one commit with every image tag it is owed. Its key is the commit and the
+      # digests of every FROM image of its Dockerfile, so a new base image (security fixes) is a
+      # reason to rebuild too, and a nightly run passes over a target whose key is already in the
+      # registry.
+      - name: Targets
+        id: targets
+        env:
+          TESTS_PASSED: ${{ needs.test.result == 'success' }}
+        run: |
+          set -euo pipefail
+
+          # docker/metadata-action lowercases the image name on its own, but the existence check
+          # addresses the registry directly
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          # the digests of the FROM images of a commit's Dockerfile, as one short key
+          base_key() {
+            local bases base digest all=""
+            bases="$(git show "$1:docker/Dockerfile.production" \
+              | awk 'toupper($1) == "FROM" { img = $NF; for (i = 2; i <= NF; i++) if (toupper($i) == "AS") img = $(i - 1); print img }' \
+              | sed "s/\${GO_VERSION}/$GO_VERSION/" | sort -u)"
+            for base in $bases; do
+              digest="$(docker buildx imagetools inspect --raw "$base" | sha256sum | cut -c1-64)"
+              echo "::notice::$base $digest" >&2
+              all="$all $digest"
+            done
+            echo "$all" | sha256sum | cut -c1-12
+          }
+
+          # the releases matching a pattern, oldest first, without release candidates
+          releases() {
+            git tag --list "$1" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true
+          }
+
+          targets='[]'
+
+          # want <commit-ish> <release or empty> <branch tag: true or false>
+          want() {
+            local sha version key release="$2" branch="$3" major=false latest=false
+            sha="$(git rev-parse "$1^{commit}")"
+            version="${sha:0:7}"
+            key="build-$version-$(base_key "$sha")"
+
+            # 1 and latest go only to the newest release of each, so that rebuilding an older one
+            # does not take them back
+            if [ -n "$release" ]; then
+              if [ "$(releases "${release%%.*}.*" | tail -n 1)" = "$release" ]; then major=true; fi
+              if [ "$(releases '*' | tail -n 1)" = "$release" ]; then latest=true; fi
+            fi
+
+            if [ "$GITHUB_EVENT_NAME" = schedule ] && docker manifest inspect "$image:$key" > /dev/null 2>&1; then
+              echo "::notice::$image:$key exists, $1 is not built again"
+              return 0
+            fi
+            echo "::notice::Building $1 ($version) as $key"
+
+            # a commit wanted twice, as the branch and as a release, is built once with both
+            targets="$(jq -c \
+              --arg ref "$sha" --arg version "$version" --arg key "$key" --arg release "$release" \
+              --argjson major "$major" --argjson latest "$latest" --argjson branch "$branch" '
+              if any(.[]; .ref == $ref) then
+                map(if .ref == $ref then
+                  (.branch = (.branch or $branch))
+                  | if $release != "" then .release = $release | .major = $major | .latest = $latest else . end
+                else . end)
+              else
+                . + [{ref: $ref, version: $version, key: $key, release: $release,
+                      major: $major, latest: $latest, branch: $branch}]
+              end' <<< "$targets")"
+          }
+
+          case "$GITHUB_EVENT_NAME" in
+            schedule)
+              # the branch once its tests pass, and the newest release whatever they say, as it
+              # was tested when it was made
+              if [ "$TESTS_PASSED" = true ]; then want HEAD '' true; fi
+              newest="$(releases '*' | tail -n 1)"
+              if [ -n "$newest" ]; then want "$newest" "$newest" false; fi
+              ;;
+            push | workflow_dispatch)
+              if [ "$TESTS_PASSED" = true ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+                want HEAD "$GITHUB_REF_NAME" false
+              elif [ "$TESTS_PASSED" = true ] && [ "$GITHUB_REF_NAME" = "$CURRENT_BRANCH" ]; then
+                want HEAD '' true
+              fi
+              ;;
+            *)
+              # a pull request, built but not pushed
+              if [ "$TESTS_PASSED" = true ]; then want HEAD '' false; fi
+              ;;
+          esac
+
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+          echo "::notice::Targets: $(jq -r '
+            if length == 0 then "nothing to build"
+            else map(.version + (if .release != "" then " " + .release else "" end)
+                     + (if .branch then " " + env.CURRENT_BRANCH else "" end)
+                     + (if .latest then " latest" else "" end)) | join(", ")
+            end' <<< "$targets")"
+
+  ##########################################################################
+  # One job per target. A release gets its version (1.2.3, and 1 and latest
+  # while it is the newest of them; a release candidate only its own), the
+  # branch gets its name. A release is built with the workflow of today and
+  # the Dockerfile it was tagged with.
+  ##########################################################################
+  docker:
+    name: Build & Push ${{ matrix.target.release || matrix.target.version }}
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.targets != '[]'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.setup.outputs.targets) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.target.ref }}
           # the version is told by the tags
           fetch-depth: 0
 
@@ -150,18 +228,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # latest from main, the version and its major number from a tag (a prerelease gets its version only)
+      # The version comes from the target, not from the ref the run was started from: a nightly run
+      # of the branch rebuilds a release as well.
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}
-            type=raw,value=${{ needs.setup.outputs.key }}
+            type=semver,pattern={{version}},value=${{ matrix.target.release }},enable=${{ matrix.target.release != '' }}
+            type=semver,pattern={{major}},value=${{ matrix.target.release }},enable=${{ matrix.target.major }}
+            type=raw,value=latest,enable=${{ matrix.target.latest }}
+            type=raw,value=${{ env.CURRENT_BRANCH }},enable=${{ matrix.target.branch }}
+            type=raw,value=sha-${{ matrix.target.version }}
+            type=raw,value=${{ matrix.target.key }}
+          flavor: |
+            latest=false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
