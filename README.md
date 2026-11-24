@@ -388,7 +388,8 @@ docker compose -f compose.dev.yaml up --build   # live reload via `go run`
 ```
 
 CI (GitHub Actions) runs `go mod tidy` verification, `go vet`, golangci-lint and tests
-on every push/PR, then builds and pushes the multi-arch image to GHCR on `main`. A nightly
+on every push/PR, then builds and pushes the multi-arch image to GHCR: `latest` from `main`, the version
+and its major number from a tag, a bare version such as `1.0.0`. A nightly
 run rebuilds it when a new Go patch release or Alpine image is out. Go cross-compiles and
 nothing runs on the target platform, so the arm64 image needs no emulation.
 

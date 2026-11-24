@@ -8,6 +8,9 @@ on:
   push:
     branches:
       - main
+    # a version, bare as the other Watcher applications tag it: 1.0.0, 1.1.0-RC1
+    tags:
+      - '[0-9]*'
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -131,6 +134,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # the version is told by the tags
+          fetch-depth: 0
 
       - name: Version
         id: version
@@ -144,14 +150,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # latest from main, the version and its major number from a tag (a prerelease gets its version only)
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha
-            type=raw,value=latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}
             type=raw,value=${{ needs.setup.outputs.key }}
 
       - name: Set up Docker Buildx
